@@ -1,20 +1,19 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 
+	"github.com/google/go-github/github"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-const githubSecret = "7f29588262f53e45ea1aa1da7e0f13b9105e6589"
-
 var (
+	listenPort      = "9999"
+	githubSecret    = []byte("7f29588262f53e45ea1aa1da7e0f13b9105e6589")
 	maintenanceNode = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "gmx_node_status",
@@ -39,64 +38,67 @@ var (
 	siteStatusMap = make(map[string]string)
 )
 
-type IssuesHook struct {
-	Action string `json:"action"`
-	Issue  Issue  `json:"issue"`
-}
-
-type IssueCommentHook struct {
-	Action  string  `json:action`
-	Issue   Issue   `json:"issue"`
-	Comment Comment `json:"comment"`
-}
-
-type Issue struct {
-	Body   string       `json:"body"`
-	Labels []IssueLabel `json:"labels"`
-	Number int          `json:"number"`
-	State  string       `json:"state"`
-	Title  string       `json:"title"`
-	URL    string       `json:"url"`
-}
-
-type IssueLabel struct {
-	Name string `json:"name"`
-}
-
-type Comment struct {
-	Body string `json:"body"`
-}
-
-func updateNodeStatusMap(node string, issueNumber string, action float64) {
-	if action == 0 {
+func updateNodeStatus(node string, issueNumber string, action float64) {
+	// Updates the status map and Prometheus metric for the node
+	switch action {
+	case 0:
 		delete(nodeStatusMap, node)
-	} else {
+		maintenanceNode.WithLabelValues(node+".measurement-lab.org", issueNumber).Set(action)
+		log.Printf("INFO: Node %s was removed from maintenance.", node)
+	case 1:
 		nodeStatusMap[node] = issueNumber
+		maintenanceNode.WithLabelValues(node+".measurement-lab.org", issueNumber).Set(action)
+		log.Printf("INFO: Node %s was added to maintenance.", node)
+	case 2:
+		for node, issue := range nodeStatusMap {
+			if issue == issueNumber {
+				delete(nodeStatusMap, node)
+			}
+			maintenanceNode.WithLabelValues(node+".measurement-lab.org", issueNumber).Set(0)
+			log.Printf("INFO: Node %s was removed from maintenance because issue was closed.", node)
+		}
+	default:
+		log.Printf("ERROR: Unknown node action type: %f", action)
 	}
-	maintenanceNode.WithLabelValues(node+".measurement-lab.org", issueNumber).Set(action)
-	log.Printf("%+v", nodeStatusMap)
 }
 
-func updateSiteStatusMap(site string, issueNumber string, action float64) {
-	if action == 0 {
+func updateSiteStatus(site string, issueNumber string, action float64) {
+	// Updates the status map and Prometheus metric for a site
+	switch action {
+	case 0:
 		delete(siteStatusMap, site)
-	} else {
+		maintenanceNode.WithLabelValues(site, issueNumber).Set(action)
+		log.Printf("INFO: Site %s was removed from maintenance.", site)
+	case 1:
 		siteStatusMap[site] = issueNumber
+		maintenanceNode.WithLabelValues(site, issueNumber).Set(action)
+		log.Printf("INFO: Site %s was added to maintenance.", site)
+	case 2:
+		for site, issue := range siteStatusMap {
+			if issue == issueNumber {
+				delete(siteStatusMap, site)
+			}
+			maintenanceNode.WithLabelValues(site, issueNumber).Set(0)
+			log.Printf("INFO: Site %s was removed from maintenance because issue was closed.", site)
+		}
+	default:
+		log.Printf("ERROR: Unknown site action type: %f", action)
 	}
-	maintenanceSite.WithLabelValues(site, issueNumber).Set(action)
-	log.Printf("%+v", siteStatusMap)
 }
 
-func parseMessage(msg string, num string) {
+func parseMessage(msg string, num string) int {
 	nodeExp, _ := regexp.Compile(`\/node (mlab[1-4]{1}\.[a-z]{3}[0-9c]{2})\s?(del)?`)
 	siteExp, _ := regexp.Compile(`\/site ([a-z]{3}[0-9c]{2})\s?(del)?`)
 	nodeMatches := nodeExp.FindAllStringSubmatch(msg, -1)
 	if len(nodeMatches) > 0 {
 		for _, node := range nodeMatches {
+			log.Printf("INFO: Flag found for node: %s", node[1])
 			if node[2] == "del" {
-				updateNodeStatusMap(node[1], num, 0)
+				log.Printf("INFO: Node %s will be removed from maintenance.", node[1])
+				updateNodeStatus(node[1], num, 0)
 			} else {
-				updateNodeStatusMap(node[1], num, 1)
+				log.Printf("INFO: Node %s will be added to maintenance.", node[1])
+				updateNodeStatus(node[1], num, 1)
 			}
 		}
 
@@ -105,52 +107,55 @@ func parseMessage(msg string, num string) {
 	siteMatches := siteExp.FindAllStringSubmatch(msg, -1)
 	if len(siteMatches) > 0 {
 		for _, site := range siteMatches {
+			log.Printf("INFO: Flag found for site: %s", site[1])
 			if site[2] == "del" {
-				updateSiteStatusMap(site[1], num, 0)
+				log.Printf("INFO: Site %s will be removed from maintenance.", site[1])
+				updateSiteStatus(site[1], num, 0)
 			} else {
-				updateSiteStatusMap(site[1], num, 1)
+				log.Printf("INFO: Site %s will be added to maintenance.", site[1])
+				updateSiteStatus(site[1], num, 1)
 			}
 		}
 	}
-}
 
-func handleIssuesHook(body []byte, resp http.ResponseWriter) int {
-	var issuesHook IssuesHook
-	json.Unmarshal(body, &issuesHook)
-	fmt.Printf("%+v\n", issuesHook)
-	parseMessage(issuesHook.Issue.Body, fmt.Sprintf("%d", issuesHook.Issue.Number))
-	return http.StatusOK
-}
-
-func handleIssueCommentHook(body []byte, resp http.ResponseWriter) int {
-	var issueCommentHook IssueCommentHook
-	json.Unmarshal(body, &issueCommentHook)
-	fmt.Printf("%+v\n", issueCommentHook)
-	parseMessage(issueCommentHook.Comment.Body, fmt.Sprintf("%d", issueCommentHook.Issue.Number))
 	return http.StatusOK
 }
 
 func receiveHook(resp http.ResponseWriter, req *http.Request) {
-	//hook, err := githubhook.Parse([]byte(githubSecret), req)
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-
-	eventType := req.Header.Get("X-GitHub-Event")
-	body, _ := ioutil.ReadAll(req.Body)
+	log.Println("INFO: Received a webhook.")
 	var status int
+	var issueNumber string
 
-	switch eventType {
-	case "issues":
-		status = handleIssuesHook(body, resp)
-	case "issue_comment":
-		status = handleIssueCommentHook(body, resp)
-	case "ping":
-		resp.WriteHeader(http.StatusOK)
+	payload, err := github.ValidatePayload(req, githubSecret)
+	if err != nil {
+		log.Printf("WARN: Validation of Webhook failed: %s", err)
+		resp.WriteHeader(http.StatusUnauthorized)
 		return
+	}
+
+	event, err := github.ParseWebHook(github.WebHookType(req), payload)
+
+	switch event := event.(type) {
+	case *github.IssuesEvent:
+		log.Println("INFO: Received an Issues event.")
+		issueNumber = strconv.Itoa(event.Issue.GetNumber())
+		if event.GetAction() == "closed" {
+			log.Printf("INFO: Issue #%s was closed.", issueNumber)
+			updateNodeStatus("n/a", issueNumber, 2)
+			updateSiteStatus("n/a", issueNumber, 2)
+			status = http.StatusOK
+		} else {
+			status = parseMessage(event.Issue.GetBody(), issueNumber)
+		}
+	case *github.IssueCommentEvent:
+		log.Println("INFO: Received an IssueComment event.")
+		issueNumber = strconv.Itoa(event.Issue.GetNumber())
+		status = parseMessage(event.Comment.GetBody(), issueNumber)
+	case *github.PingEvent:
+		log.Println("INFO: Received an Ping event.")
+		status = http.StatusOK
 	default:
-		resp.WriteHeader(http.StatusNotImplemented)
-		return
+		status = http.StatusNotImplemented
 	}
 
 	resp.WriteHeader(status)
@@ -165,5 +170,5 @@ func init() {
 func main() {
 	http.HandleFunc("/webhook", receiveHook)
 	http.Handle("/metrics", promhttp.Handler())
-	log.Fatal(http.ListenAndServe(":9999", nil))
+	log.Fatal(http.ListenAndServe(":"+listenPort, nil))
 }
