@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/google/go-github/github"
 	"github.com/prometheus/client_golang/prometheus"
@@ -19,7 +20,7 @@ var (
 	fMachineStateFilePath string
 	fSiteStateFilePath    string
 
-	githubSecret = []byte("7f29588262f53e45ea1aa1da7e0f13b9105e6589")
+	githubSecret []byte
 
 	maintenanceMachine = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -45,70 +46,39 @@ var (
 	siteStateMap    = make(map[string]string)
 )
 
-func writeMachineState() {
-	machineStateFile, err := os.Create(fMachineStateFilePath)
-	if err == nil {
-		machineStateFile, err := os.Create(fMachineStateFilePath)
-		if err != nil {
-			log.Fatalf("ERROR: Failed to write file %s with error: %s", fMachineStateFilePath, err)
-		}
-		machineStateEncoder := gob.NewEncoder(machineStateFile)
-		machineStateEncoder.Encode(machineStateMap)
-		log.Println("INFO: Successfully wrote machineStateMap to disk.")
+func writeState(stateFilePath string, stateMap map[string]string) {
+	stateFile, err := os.Create(stateFilePath)
+	if err != nil {
+		log.Fatalf("ERROR: Failed to create file %s for writing with error: %s", stateFilePath, err)
 	} else {
-		log.Fatalf("ERROR: Failed to write file %s with error: %s", fMachineStateFilePath, err)
+		stateEncoder := gob.NewEncoder(stateFile)
+		stateEncoder.Encode(stateMap)
+		log.Printf("INFO: Successfully wrote state to %s.", stateFilePath)
 	}
-	machineStateFile.Close()
+	stateFile.Close()
 }
 
-func writeSiteState() {
-	siteStateFile, err := os.Create(fSiteStateFilePath)
-	if err == nil {
-		siteStateFile, err := os.Create(fSiteStateFilePath)
-		if err != nil {
-			log.Fatalf("ERROR: Failed to write file %s with error: %s", fSiteStateFilePath, err)
-		}
-		siteStateEncoder := gob.NewEncoder(siteStateFile)
-		siteStateEncoder.Encode(siteStateMap)
-		log.Println("INFO: Successfully wrote siteStateMap to disk.")
+func restoreState(stateFilePath string, stateMap map[string]string) {
+	stateFile, err := os.Open(stateFilePath)
+	if err != nil {
+		log.Printf("WARNING: Failed to open %s with error: %s", stateFilePath, err)
 	} else {
-		log.Fatalf("ERROR: Failed to write file %s with error: %s", fMachineStateFilePath, err)
-	}
-	siteStateFile.Close()
-}
-
-func restoreState() {
-	machineStateFile, err := os.Open(fMachineStateFilePath)
-	if err == nil {
-		machineStateDecoder := gob.NewDecoder(machineStateFile)
-		err = machineStateDecoder.Decode(&machineStateMap)
+		stateDecoder := gob.NewDecoder(stateFile)
+		err = stateDecoder.Decode(&stateMap)
 		if err != nil {
-			log.Fatalf("ERROR: Failed to decode %s with error: %s", fMachineStateFilePath, err)
+			log.Fatalf("ERROR: Failed to decode %s with error: %s", stateFilePath, err)
 		}
-		for machine, issue := range machineStateMap {
-			updateMachineState(machine, issue, 1)
+		for k, issue := range stateMap {
+			if strings.HasPrefix(k, `mlab`) {
+				updateMachineState(k, issue, 1)
+				log.Println("INFO: Successfully restored machineStateMap from disk.")
+			} else {
+				updateSiteState(k, issue, 1)
+				log.Println("INFO: Successfully restored siteStateMap from disk.")
+			}
 		}
-		log.Println("INFO: Successfully restored machineStateMap from disk.")
-	} else {
-		log.Printf("WARNING: Failed to open %s with error: %s", fMachineStateFilePath, err)
 	}
-	machineStateFile.Close()
-
-	siteStateFile, err := os.Open(fSiteStateFilePath)
-	if err == nil {
-		siteStateDecoder := gob.NewDecoder(siteStateFile)
-		err = siteStateDecoder.Decode(&siteStateMap)
-		if err != nil {
-			log.Fatalf("ERROR: Failed to decode %s with error: %s", fSiteStateFilePath, err)
-		}
-		for site, issue := range siteStateMap {
-			updateSiteState(site, issue, 1)
-		}
-		log.Println("INFO: Successfully restored siteStateMap from disk.")
-	} else {
-		log.Printf("WARNING: Failed to open %s with error: %s", fSiteStateFilePath, err)
-	}
-	siteStateFile.Close()
+	stateFile.Close()
 }
 
 func updateMachineState(machine string, issueNumber string, action float64) {
@@ -173,7 +143,7 @@ func parseMessage(msg string, num string) int {
 				log.Printf("INFO: Machine %s will be added to maintenance.", machine[1])
 				updateMachineState(machine[1], num, 1)
 			}
-			writeMachineState()
+			writeState(fMachineStateFilePath, machineStateMap)
 		}
 
 	}
@@ -189,7 +159,7 @@ func parseMessage(msg string, num string) int {
 				log.Printf("INFO: Site %s will be added to maintenance.", site[1])
 				updateSiteState(site[1], num, 1)
 			}
-			writeSiteState()
+			writeState(fSiteStateFilePath, siteStateMap)
 		}
 	}
 
@@ -246,7 +216,8 @@ func init() {
 		"Filesystem path for site state file.")
 	prometheus.MustRegister(maintenanceMachine)
 	prometheus.MustRegister(maintenanceSite)
-	restoreState()
+	restoreState(fMachineStateFilePath, machineStateMap)
+	restoreState(fSiteStateFilePath, siteStateMap)
 }
 
 func main() {
