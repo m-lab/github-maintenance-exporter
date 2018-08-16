@@ -71,12 +71,11 @@ func restoreState(stateFilePath string, stateMap map[string]string) {
 		for k, issue := range stateMap {
 			if strings.HasPrefix(k, `mlab`) {
 				updateMachineState(k, issue, 1)
-				log.Println("INFO: Successfully restored machineStateMap from disk.")
 			} else {
 				updateSiteState(k, issue, 1)
-				log.Println("INFO: Successfully restored siteStateMap from disk.")
 			}
 		}
+		log.Println("INFO: Successfully restored machineStateMap and siteStateMap from disk.")
 	}
 	stateFile.Close()
 }
