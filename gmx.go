@@ -48,7 +48,18 @@ var (
 	machineRegExp = regexp.MustCompile(`\/machine (mlab[1-4]{1}\.[a-z]{3}[0-9c]{2})\s?(del)?`)
 	siteRegExp    = regexp.MustCompile(`\/site ([a-z]{3}[0-9c]{2})\s?(del)?`)
 
-	// The Prometheus metric for exposing machine maintenance status.
+	// Prometheus metric for exposing any errors that the exporter encounters.
+	metricError = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gmx_error_count",
+			Help: "Count of errors.",
+		},
+		[]string{
+			"type",
+			"function",
+		},
+	)
+	// Prometheus metric for exposing machine maintenance status.
 	metricMachine = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "gmx_machine_state",
@@ -59,7 +70,7 @@ var (
 			"issue",
 		},
 	)
-	// The Prometheus metric for exposing site maintenance status.
+	// Prometheus metric for exposing site maintenance status.
 	metricSite = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "gmx_site_state",
@@ -84,26 +95,29 @@ type maintenanceState struct {
 
 // writeState serializes the content of a maintenanceState object into JSON and
 // writes it to a file on disk.
-func writeState() error {
+func writeState(s *maintenanceState) error {
 	mux.Lock()
 	defer mux.Unlock()
 
 	stateFile, err := os.Create(fStateFilePath)
 	if err != nil {
 		log.Printf("ERROR: Failed to create state file %s: %s", fStateFilePath, err)
+		metricError.WithLabelValues("createfile", "writeState").Add(1)
 		return err
 	}
 	defer stateFile.Close()
 
-	data, err := json.MarshalIndent(state, "", "    ")
+	data, err := json.MarshalIndent(s, "", "    ")
 	if err != nil {
 		log.Printf("ERROR: Failed to marshal JSON: %s", err)
+		metricError.WithLabelValues("marshaljson", "writeState").Add(1)
 		return err
 	}
 
 	_, err = stateFile.Write(data)
 	if err != nil {
 		log.Printf("ERROR: Failed to write state to %s: %s", fStateFilePath, err)
+		metricError.WithLabelValues("writefile", "writeState").Add(1)
 		return err
 	}
 
@@ -113,10 +127,11 @@ func writeState() error {
 
 // restoreState reads serialized JSON data from disk and loads it into
 // maintenanceState object.
-func restoreState() error {
+func restoreState(s *maintenanceState) error {
 	stateFile, err := os.Open(fStateFilePath)
 	if err != nil {
 		log.Printf("WARNING: Failed to open state file %s: %s", fStateFilePath, err)
+		metricError.WithLabelValues("openfile", "restoreState").Add(1)
 		return err
 	}
 	defer stateFile.Close()
@@ -124,23 +139,25 @@ func restoreState() error {
 	data, err := ioutil.ReadAll(stateFile)
 	if err != nil {
 		log.Printf("ERROR: Failed to read state data from %s: %s", fStateFilePath, err)
+		metricError.WithLabelValues("readfile", "restoreState").Add(1)
 		return err
 	}
 
-	err = json.Unmarshal(data, &state)
+	err = json.Unmarshal(data, &s)
 	if err != nil {
 		log.Printf("ERROR: Failed to unmarshal JSON: %s", err)
+		metricError.WithLabelValues("unmarshaljson", "restoreState").Add(1)
 		return err
 	}
 
 	// Restore machine maintenance state.
-	for machine, issue := range state.Machines {
-		metricMachine.WithLabelValues(machine, issue).Set(1)
+	for machine, issue := range s.Machines {
+		metricMachine.WithLabelValues(machine, issue).Set(cEnterMaintenance)
 	}
 
 	// Restore site maintenance state.
 	for site, issue := range state.Sites {
-		metricSite.WithLabelValues(site, issue).Set(1)
+		metricSite.WithLabelValues(site, issue).Set(cEnterMaintenance)
 	}
 
 	log.Printf("INFO: Successfully restored %s from disk.", fStateFilePath)
@@ -149,7 +166,7 @@ func restoreState() error {
 
 // closeIssue removes any machines and sites from maintenance mode when the
 // issue that added them to maintenance mode is closed.
-func closeIssue(issueNumber string) {
+func closeIssue(issueNumber string) error {
 	// Remove any machines from maintenance that were set by this issue.
 	for machine, issue := range state.Machines {
 		if issue == issueNumber {
@@ -168,7 +185,7 @@ func closeIssue(issueNumber string) {
 		}
 	}
 
-	writeState()
+	return writeState(&state)
 }
 
 // updateState modifies the maintenance state of a machine or site in the
@@ -179,11 +196,11 @@ func updateState(stateMap map[string]string, mapKey string, metricState *prometh
 	defer mux.Unlock()
 
 	switch action {
-	case 0:
+	case cLeaveMaintenance:
 		delete(stateMap, mapKey)
-		metricState.WithLabelValues(mapKey+".measurement-lab.org", issueNumber).Set(action)
+		metricState.WithLabelValues(mapKey, issueNumber).Set(action)
 		log.Printf("INFO: Machine %s was removed from maintenance.", mapKey)
-	case 1:
+	case cEnterMaintenance:
 		stateMap[mapKey] = issueNumber
 		metricState.WithLabelValues(mapKey, issueNumber).Set(action)
 		log.Printf("INFO: %s was added to maintenance.", mapKey)
@@ -196,7 +213,7 @@ func updateState(stateMap map[string]string, mapKey string, metricState *prometh
 // that match predefined patterns indicating that machine or site should be
 // added to or removed from maintenance mode. If any matches are found, it
 // updates the state for the item, then writes the entire state to disk.
-func parseMessage(msg string, issueNumber string) {
+func parseMessage(msg string, issueNumber string) error {
 	machineMatches := machineRegExp.FindAllStringSubmatch(msg, -1)
 	if len(machineMatches) > 0 {
 		for _, machine := range machineMatches {
@@ -226,7 +243,7 @@ func parseMessage(msg string, issueNumber string) {
 		}
 	}
 
-	writeState()
+	return writeState(&state)
 }
 
 // receiveHook is the handler function for received webhooks. It validates the
@@ -241,6 +258,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	payload, err := github.ValidatePayload(req, githubSecret)
 	if err != nil {
 		log.Printf("ERROR: Validation of Webhook failed: %s", err)
+		metricError.WithLabelValues("validatehook", "receiveHook").Add(1)
 		resp.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -248,6 +266,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	event, err := github.ParseWebHook(github.WebHookType(req), payload)
 	if err != nil {
 		log.Printf("ERROR: Failed to parse webhook with error: %s", err)
+		metricError.WithLabelValues("parsehook", "receiveHook").Add(1)
 		resp.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -258,14 +277,26 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
 		if event.GetAction() == "closed" {
 			log.Printf("INFO: Issue #%s was closed.", issueNumber)
-			closeIssue(issueNumber)
+			err = closeIssue(issueNumber)
+			if err != nil {
+				resp.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 		} else {
-			parseMessage(event.Issue.GetBody(), issueNumber)
+			err = parseMessage(event.Issue.GetBody(), issueNumber)
+			if err != nil {
+				resp.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 		}
 	case *github.IssueCommentEvent:
 		log.Println("INFO: Webhook is an IssueComment event.")
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
-		parseMessage(event.Comment.GetBody(), issueNumber)
+		err = parseMessage(event.Comment.GetBody(), issueNumber)
+		if err != nil {
+			resp.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	case *github.PingEvent:
 		log.Println("INFO: Received an Ping event.")
 		var cnt int
@@ -296,13 +327,14 @@ func init() {
 		"Address to listen on for telemetry.")
 	flag.StringVar(&fStateFilePath, "storage.state-file", "/tmp/gmx-state",
 		"Filesystem path for the state file.")
+	prometheus.MustRegister(metricError)
 	prometheus.MustRegister(metricMachine)
 	prometheus.MustRegister(metricSite)
 }
 
 func main() {
 	flag.Parse()
-	restoreState()
+	restoreState(&state)
 	http.HandleFunc("/webhook", receiveHook)
 	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(fListenAddress, nil))
