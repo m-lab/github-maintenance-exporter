@@ -1,4 +1,4 @@
-// Copyright 2016 ePoxy Authors
+// Copyright 2018 github-maintenance-exporter Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ var (
 	fListenAddress string // The interface and port to listen on.
 	fStateFilePath string // The filesystem path to write the maintenance state file.
 
-	githubSecret = []byte("7f29588262f53e45ea1aa1da7e0f13b9105e6589") // The symetric secret used to validate that webhook actually came from Github.
+	githubSecret []byte // The symetric secret used to validate that the webhook actually came from Github.
 
 	mux sync.Mutex
 
@@ -77,10 +77,13 @@ var (
 	}
 )
 
+// maintenanceState is a struct for storing both machine and site maintenance states.
 type maintenanceState struct {
 	Machines, Sites map[string]string
 }
 
+// writeState serializes the content of a maintenanceState object into JSON and
+// writes it to a file on disk.
 func writeState() error {
 	mux.Lock()
 	defer mux.Unlock()
@@ -108,6 +111,8 @@ func writeState() error {
 	return nil
 }
 
+// restoreState reads serialized JSON data from disk and loads it into
+// maintenanceState object.
 func restoreState() error {
 	stateFile, err := os.Open(fStateFilePath)
 	if err != nil {
@@ -142,6 +147,8 @@ func restoreState() error {
 	return nil
 }
 
+// closeIssue removes any machines and sites from maintenance mode when the
+// issue that added them to maintenance mode is closed.
 func closeIssue(issueNumber string) {
 	// Remove any machines from maintenance that were set by this issue.
 	for machine, issue := range state.Machines {
@@ -164,12 +171,13 @@ func closeIssue(issueNumber string) {
 	writeState()
 }
 
+// updateState modifies the maintenance state of a machine or site in the
+// in-memory map as well as updating the Prometheus metric.
 func updateState(stateMap map[string]string, mapKey string, metricState *prometheus.GaugeVec,
 	issueNumber string, action float64) {
 	mux.Lock()
 	defer mux.Unlock()
 
-	// Updates the state map and Prometheus metric for a machine or site
 	switch action {
 	case 0:
 		delete(stateMap, mapKey)
@@ -184,6 +192,10 @@ func updateState(stateMap map[string]string, mapKey string, metricState *prometh
 	}
 }
 
+// parseMessage scans the body of an issue or comment looking for special flags
+// that match predefined patterns indicating that machine or site should be
+// added to or removed from maintenance mode. If any matches are found, it
+// updates the state for the item, then writes the entire state to disk.
 func parseMessage(msg string, issueNumber string) {
 	machineMatches := machineRegExp.FindAllStringSubmatch(msg, -1)
 	if len(machineMatches) > 0 {
@@ -217,6 +229,9 @@ func parseMessage(msg string, issueNumber string) {
 	writeState()
 }
 
+// receiveHook is the handler function for received webhooks. It validates the
+// hook, parses the payload, makes sure that the hook event matches at least one
+// event this exporter handles, then passes off the payload to parseMessage.
 func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	var issueNumber string
 	var status = http.StatusOK
@@ -274,6 +289,8 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	return
 }
 
+// init initializes the Prometheus metrics and drops any passed flags into
+// global variables.
 func init() {
 	flag.StringVar(&fListenAddress, "web.listen-address", ":9999",
 		"Address to listen on for telemetry.")
