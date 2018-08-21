@@ -298,8 +298,8 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 			return
 		}
 	case *github.PingEvent:
-		log.Println("INFO: Received an Ping event.")
-		var cnt int
+		log.Println("INFO: Webhook is a Ping event.")
+		var cnt = 0
 		// Since this exporter only processes "issues" and "issue_comment" Github
 		// webhook events, be sure that at least these two events are enabled for the
 		// webhook.
@@ -307,9 +307,9 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 			if v == "issues" || v == "issue_comment" {
 				cnt++
 			}
-
 		}
 		if cnt != 2 {
+			log.Printf("ERROR: Registered webhook events do not include both 'issues' and 'issue_comment'.")
 			status = http.StatusExpectationFailed
 		}
 	default:
