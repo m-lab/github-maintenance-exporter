@@ -19,6 +19,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
@@ -95,18 +96,7 @@ type maintenanceState struct {
 
 // writeState serializes the content of a maintenanceState object into JSON and
 // writes it to a file on disk.
-func writeState(s *maintenanceState) error {
-	mux.Lock()
-	defer mux.Unlock()
-
-	stateFile, err := os.Create(fStateFilePath)
-	if err != nil {
-		log.Printf("ERROR: Failed to create state file %s: %s", fStateFilePath, err)
-		metricError.WithLabelValues("createfile", "writeState").Add(1)
-		return err
-	}
-	defer stateFile.Close()
-
+func writeState(f *bufio.Writer, s *maintenanceState) error {
 	data, err := json.MarshalIndent(s, "", "    ")
 	if err != nil {
 		log.Printf("ERROR: Failed to marshal JSON: %s", err)
@@ -114,7 +104,7 @@ func writeState(s *maintenanceState) error {
 		return err
 	}
 
-	_, err = stateFile.Write(data)
+	_, err = f.Write(data)
 	if err != nil {
 		log.Printf("ERROR: Failed to write state to %s: %s", fStateFilePath, err)
 		metricError.WithLabelValues("writefile", "writeState").Add(1)
@@ -127,16 +117,8 @@ func writeState(s *maintenanceState) error {
 
 // restoreState reads serialized JSON data from disk and loads it into
 // maintenanceState object.
-func restoreState(s *maintenanceState) error {
-	stateFile, err := os.Open(fStateFilePath)
-	if err != nil {
-		log.Printf("WARNING: Failed to open state file %s: %s", fStateFilePath, err)
-		metricError.WithLabelValues("openfile", "restoreState").Add(1)
-		return err
-	}
-	defer stateFile.Close()
-
-	data, err := ioutil.ReadAll(stateFile)
+func restoreState(r *bufio.Reader, s *maintenanceState) error {
+	data, err := ioutil.ReadAll(r)
 	if err != nil {
 		log.Printf("ERROR: Failed to read state data from %s: %s", fStateFilePath, err)
 		metricError.WithLabelValues("readfile", "restoreState").Add(1)
@@ -165,27 +147,32 @@ func restoreState(s *maintenanceState) error {
 }
 
 // closeIssue removes any machines and sites from maintenance mode when the
-// issue that added them to maintenance mode is closed.
-func closeIssue(issueNumber string) error {
+// issue that added them to maintenance mode is closed. The return value is the
+// number of modifications that were made to the machine and site maintenance
+// state.
+func closeIssue(issueNumber string, s *maintenanceState) int {
+	var mods = 0
 	// Remove any machines from maintenance that were set by this issue.
-	for machine, issue := range state.Machines {
+	for machine, issue := range s.Machines {
 		if issue == issueNumber {
-			delete(state.Machines, machine)
+			delete(s.Machines, machine)
 			metricMachine.WithLabelValues(machine+".measurement-lab.org", issueNumber).Set(0)
 			log.Printf("INFO: Machine %s was removed from maintenance because issue was closed.", machine)
+			mods++
 		}
 	}
 
 	// Remove any sites from maintenance that were set by this issue.
-	for site, issue := range state.Sites {
+	for site, issue := range s.Sites {
 		if issue == issueNumber {
-			delete(state.Sites, site)
+			delete(s.Sites, site)
 			metricSite.WithLabelValues(site, issueNumber).Set(0)
 			log.Printf("INFO: Site %s was removed from maintenance because issue was closed.", site)
+			mods++
 		}
 	}
 
-	return writeState(&state)
+	return mods
 }
 
 // updateState modifies the maintenance state of a machine or site in the
@@ -212,19 +199,22 @@ func updateState(stateMap map[string]string, mapKey string, metricState *prometh
 // parseMessage scans the body of an issue or comment looking for special flags
 // that match predefined patterns indicating that machine or site should be
 // added to or removed from maintenance mode. If any matches are found, it
-// updates the state for the item, then writes the entire state to disk.
-func parseMessage(msg string, issueNumber string) error {
+// updates the state for the item, then writes the entire state to disk. The
+// return value is the number of modifications that were made to the machine and
+// site maintenance state.
+func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
+	var mods = 0
 	machineMatches := machineRegExp.FindAllStringSubmatch(msg, -1)
 	if len(machineMatches) > 0 {
 		for _, machine := range machineMatches {
 			log.Printf("INFO: Flag found for machine: %s", machine[1])
 			label := machine[1] + ".measurement-lab.org"
 			if machine[2] == "del" {
-				log.Printf("INFO: Machine %s will be removed from maintenance.", machine[1])
-				updateState(state.Machines, label, metricMachine, issueNumber, cLeaveMaintenance)
+				updateState(s.Machines, label, metricMachine, issueNumber, cLeaveMaintenance)
+				mods++
 			} else {
-				log.Printf("INFO: Machine %s will be added to maintenance.", machine[1])
-				updateState(state.Machines, label, metricMachine, issueNumber, cEnterMaintenance)
+				updateState(s.Machines, label, metricMachine, issueNumber, cEnterMaintenance)
+				mods++
 			}
 		}
 	}
@@ -234,16 +224,16 @@ func parseMessage(msg string, issueNumber string) error {
 		for _, site := range siteMatches {
 			log.Printf("INFO: Flag found for site: %s", site[1])
 			if site[2] == "del" {
-				log.Printf("INFO: Site %s will be removed from maintenance.", site[1])
-				updateState(state.Sites, site[1], metricSite, issueNumber, 0)
+				updateState(s.Sites, site[1], metricSite, issueNumber, 0)
+				mods++
 			} else {
-				log.Printf("INFO: Site %s will be added to maintenance.", site[1])
-				updateState(state.Sites, site[1], metricSite, issueNumber, 1)
+				updateState(s.Sites, site[1], metricSite, issueNumber, 1)
+				mods++
 			}
 		}
 	}
 
-	return writeState(&state)
+	return mods
 }
 
 // receiveHook is the handler function for received webhooks. It validates the
@@ -252,6 +242,8 @@ func parseMessage(msg string, issueNumber string) error {
 func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	var issueNumber string
 	var status = http.StatusOK
+
+	var StateMods = 0 // Number of modifications made to current state by webhook.
 
 	log.Println("INFO: Received a webhook.")
 
@@ -277,26 +269,14 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
 		if event.GetAction() == "closed" {
 			log.Printf("INFO: Issue #%s was closed.", issueNumber)
-			err = closeIssue(issueNumber)
-			if err != nil {
-				resp.WriteHeader(http.StatusInternalServerError)
-				return
-			}
+			StateMods = closeIssue(issueNumber, &state)
 		} else {
-			err = parseMessage(event.Issue.GetBody(), issueNumber)
-			if err != nil {
-				resp.WriteHeader(http.StatusInternalServerError)
-				return
-			}
+			StateMods = parseMessage(event.Issue.GetBody(), issueNumber, &state)
 		}
 	case *github.IssueCommentEvent:
 		log.Println("INFO: Webhook is an IssueComment event.")
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
-		err = parseMessage(event.Comment.GetBody(), issueNumber)
-		if err != nil {
-			resp.WriteHeader(http.StatusInternalServerError)
-			return
-		}
+		StateMods = parseMessage(event.Comment.GetBody(), issueNumber, &state)
 	case *github.PingEvent:
 		log.Println("INFO: Webhook is a Ping event.")
 		var cnt = 0
@@ -313,7 +293,26 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 			status = http.StatusExpectationFailed
 		}
 	default:
+		log.Println("WARNING: Received unimplemented webhook event type.")
 		status = http.StatusNotImplemented
+	}
+
+	// Only write state to file if the current state was modified.
+	if StateMods > 0 {
+		mux.Lock()
+		stateFile, err := os.Create(fStateFilePath)
+		if err != nil {
+			log.Printf("ERROR: Failed to create state file %s: %s", fStateFilePath, err)
+			metricError.WithLabelValues("createfile", "writeState").Add(1)
+		}
+		defer stateFile.Close()
+		writer := bufio.NewWriter(stateFile)
+		err = writeState(writer, &state)
+		if err != nil {
+			log.Printf("ERROR: failed to write state file %s: %s", fStateFilePath, err)
+			metricError.WithLabelValues("writefile", "receiveHook").Add(1)
+		}
+		mux.Unlock()
 	}
 
 	resp.WriteHeader(status)
@@ -334,7 +333,15 @@ func init() {
 
 func main() {
 	flag.Parse()
-	restoreState(&state)
+	stateFile, err := os.Open(fStateFilePath)
+	if err != nil {
+		log.Printf("WARNING: Failed to open state file %s: %s", fStateFilePath, err)
+		metricError.WithLabelValues("openfile", "main").Add(1)
+	}
+	defer stateFile.Close()
+
+	restoreState(bufio.NewReader(stateFile), &state)
+
 	http.HandleFunc("/webhook", receiveHook)
 	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(fListenAddress, nil))
