@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/hex"
@@ -42,22 +41,18 @@ func TestRestoreState(t *testing.T) {
 	expectedMachines := 3
 	expectedSites := 4
 
-	r := bufio.NewReader(strings.NewReader(savedState))
-	testState := maintenanceState{
-		Machines: make(map[string]string),
-		Sites:    make(map[string]string),
-	}
+	r := strings.NewReader(savedState)
+	var s maintenanceState
+	restoreState(r, &s)
 
-	restoreState(r, &testState)
-
-	if len(testState.Machines) != expectedMachines {
+	if len(s.Machines) != expectedMachines {
 		t.Errorf("restoreState(): Expected %d restored machines; have %d.",
-			expectedMachines, len(testState.Machines))
+			expectedMachines, len(s.Machines))
 	}
 
-	if len(testState.Sites) != expectedSites {
+	if len(s.Sites) != expectedSites {
 		t.Errorf("restoreState(): Expected %d restored sites; have %d.",
-			expectedSites, len(testState.Sites))
+			expectedSites, len(s.Sites))
 	}
 }
 
@@ -179,14 +174,11 @@ func TestReceiveHook(t *testing.T) {
 func TestCloseIssue(t *testing.T) {
 	expectedMods := 3
 
-	r := bufio.NewReader(strings.NewReader(savedState))
-	testState := maintenanceState{
-		Machines: make(map[string]string),
-		Sites:    make(map[string]string),
-	}
-	restoreState(r, &testState)
+	r := strings.NewReader(savedState)
+	var s maintenanceState
+	restoreState(r, &s)
 
-	mods := closeIssue("8", &testState)
+	mods := closeIssue("8", &s)
 
 	if mods != expectedMods {
 		t.Errorf("closeIssue(): Expected %d state modifications; got %d", expectedMods, mods)
@@ -194,12 +186,9 @@ func TestCloseIssue(t *testing.T) {
 }
 
 func TestParseMessage(t *testing.T) {
-	r := bufio.NewReader(strings.NewReader(savedState))
-	testState := maintenanceState{
-		Machines: make(map[string]string),
-		Sites:    make(map[string]string),
-	}
-	restoreState(r, &testState)
+	r := strings.NewReader(savedState)
+	var s maintenanceState
+	restoreState(r, &s)
 
 	tests := []struct {
 		name         string
@@ -234,7 +223,7 @@ func TestParseMessage(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		mods := parseMessage(test.msg, "99", &testState)
+		mods := parseMessage(test.msg, "99", &s)
 		if mods != test.expectedMods {
 			t.Errorf("parseMessage(): %s: expected %d state modifications; got %d",
 				test.name, test.expectedMods, mods)
