@@ -19,9 +19,9 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"flag"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -96,7 +96,7 @@ type maintenanceState struct {
 
 // writeState serializes the content of a maintenanceState object into JSON and
 // writes it to a file on disk.
-func writeState(w *bufio.Writer, s *maintenanceState) error {
+func writeState(w io.Writer, s *maintenanceState) error {
 	data, err := json.MarshalIndent(s, "", "    ")
 	if err != nil {
 		log.Printf("ERROR: Failed to marshal JSON: %s", err)
@@ -117,7 +117,7 @@ func writeState(w *bufio.Writer, s *maintenanceState) error {
 
 // restoreState reads serialized JSON data from disk and loads it into
 // maintenanceState object.
-func restoreState(r *bufio.Reader, s *maintenanceState) error {
+func restoreState(r io.Reader, s *maintenanceState) error {
 	data, err := ioutil.ReadAll(r)
 	if err != nil {
 		log.Printf("ERROR: Failed to read state data from %s: %s", fStateFilePath, err)
@@ -303,10 +303,11 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			log.Printf("ERROR: Failed to create state file %s: %s", fStateFilePath, err)
 			metricError.WithLabelValues("createfile", "writeState").Add(1)
+			resp.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		defer stateFile.Close()
-		writer := bufio.NewWriter(stateFile)
-		err = writeState(writer, &state)
+		err = writeState(stateFile, &state)
 		if err != nil {
 			log.Printf("ERROR: failed to write state file %s: %s", fStateFilePath, err)
 			metricError.WithLabelValues("writefile", "receiveHook").Add(1)
@@ -339,7 +340,7 @@ func main() {
 	}
 	defer stateFile.Close()
 
-	restoreState(bufio.NewReader(stateFile), &state)
+	restoreState(stateFile, &state)
 
 	http.HandleFunc("/webhook", receiveHook)
 	http.Handle("/metrics", promhttp.Handler())
