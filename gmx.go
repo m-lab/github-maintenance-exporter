@@ -340,7 +340,7 @@ func main() {
 	} else {
 		restoreState(stateFile, &state)
 	}
-	defer stateFile.Close()
+	stateFile.Close()
 
 	http.HandleFunc("/webhook", receiveHook)
 	http.Handle("/metrics", promhttp.Handler())
