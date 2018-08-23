@@ -100,11 +100,56 @@ func TestReceiveHook(t *testing.T) {
 			payload:        []byte(`{"fake":"data"}`),
 		},
 		{
+			name:           "issues-hook-good-request-2-mods",
+			secretKey:      githubSecret,
+			eventType:      "issues",
+			expectedStatus: http.StatusOK,
+			payload: []byte(`
+				{
+					"action": "edited",
+					"issue": {
+						"number": 3,
+						"body": "Put /machine mlab1.abc01 and /site xyz01 into maintenance."
+					}
+				}
+			`),
+		},
+		{
+			name:           "issues-hook-good-request-close-issue",
+			secretKey:      githubSecret,
+			eventType:      "issues",
+			expectedStatus: http.StatusOK,
+			payload: []byte(`
+				{
+					"action": "closed",
+					"issue": {
+						"number": 3,
+						"body": "Issue resolved."
+					}
+				}
+			`),
+		},
+		{
 			name:           "issue-comment-hook-malformed-payload",
 			secretKey:      githubSecret,
 			eventType:      "issue_comment",
 			expectedStatus: http.StatusBadRequest,
 			payload:        []byte(`"malformed; 'json }]]}`),
+		},
+		{
+			name:           "issue-hook-good-request-1-mod",
+			secretKey:      githubSecret,
+			eventType:      "issue_comment",
+			expectedStatus: http.StatusOK,
+			payload: []byte(`
+				{
+					"action": "edited",
+					"issue": {
+						"number": 1,
+						"body": "Take /machine mlab1.abc01 del out of maintenance."
+					}
+				}
+			`),
 		},
 	}
 

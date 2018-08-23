@@ -96,7 +96,7 @@ type maintenanceState struct {
 
 // writeState serializes the content of a maintenanceState object into JSON and
 // writes it to a file on disk.
-func writeState(f *bufio.Writer, s *maintenanceState) error {
+func writeState(w *bufio.Writer, s *maintenanceState) error {
 	data, err := json.MarshalIndent(s, "", "    ")
 	if err != nil {
 		log.Printf("ERROR: Failed to marshal JSON: %s", err)
@@ -104,7 +104,7 @@ func writeState(f *bufio.Writer, s *maintenanceState) error {
 		return err
 	}
 
-	_, err = f.Write(data)
+	_, err = w.Write(data)
 	if err != nil {
 		log.Printf("ERROR: Failed to write state to %s: %s", fStateFilePath, err)
 		metricError.WithLabelValues("writefile", "writeState").Add(1)
@@ -241,9 +241,8 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 // event this exporter handles, then passes off the payload to parseMessage.
 func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	var issueNumber string
+	var mods = 0 // Number of modifications made to current state by webhook.
 	var status = http.StatusOK
-
-	var StateMods = 0 // Number of modifications made to current state by webhook.
 
 	log.Println("INFO: Received a webhook.")
 
@@ -269,14 +268,14 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
 		if event.GetAction() == "closed" {
 			log.Printf("INFO: Issue #%s was closed.", issueNumber)
-			StateMods = closeIssue(issueNumber, &state)
+			mods = closeIssue(issueNumber, &state)
 		} else {
-			StateMods = parseMessage(event.Issue.GetBody(), issueNumber, &state)
+			mods = parseMessage(event.Issue.GetBody(), issueNumber, &state)
 		}
 	case *github.IssueCommentEvent:
 		log.Println("INFO: Webhook is an IssueComment event.")
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
-		StateMods = parseMessage(event.Comment.GetBody(), issueNumber, &state)
+		mods = parseMessage(event.Comment.GetBody(), issueNumber, &state)
 	case *github.PingEvent:
 		log.Println("INFO: Webhook is a Ping event.")
 		var cnt = 0
@@ -298,7 +297,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	// Only write state to file if the current state was modified.
-	if StateMods > 0 {
+	if mods > 0 {
 		mux.Lock()
 		stateFile, err := os.Create(fStateFilePath)
 		if err != nil {
