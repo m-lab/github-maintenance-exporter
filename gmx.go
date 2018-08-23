@@ -199,9 +199,8 @@ func updateState(stateMap map[string]string, mapKey string, metricState *prometh
 // parseMessage scans the body of an issue or comment looking for special flags
 // that match predefined patterns indicating that machine or site should be
 // added to or removed from maintenance mode. If any matches are found, it
-// updates the state for the item, then writes the entire state to disk. The
-// return value is the number of modifications that were made to the machine and
-// site maintenance state.
+// updates the state for the item. The return value is the number of
+// modifications that were made to the machine and site maintenance state.
 func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 	var mods = 0
 	machineMatches := machineRegExp.FindAllStringSubmatch(msg, -1)
@@ -299,11 +298,12 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	// Only write state to file if the current state was modified.
 	if mods > 0 {
 		mux.Lock()
+		defer mux.Unlock()
+
 		stateFile, err := os.Create(fStateFilePath)
 		if err != nil {
 			log.Printf("ERROR: Failed to create state file %s: %s", fStateFilePath, err)
 			metricError.WithLabelValues("createfile", "writeState").Add(1)
-			resp.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		defer stateFile.Close()
@@ -311,8 +311,8 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			log.Printf("ERROR: failed to write state file %s: %s", fStateFilePath, err)
 			metricError.WithLabelValues("writefile", "receiveHook").Add(1)
+			return
 		}
-		mux.Unlock()
 	}
 
 	resp.WriteHeader(status)
@@ -337,10 +337,10 @@ func main() {
 	if err != nil {
 		log.Printf("WARNING: Failed to open state file %s: %s", fStateFilePath, err)
 		metricError.WithLabelValues("openfile", "main").Add(1)
+	} else {
+		restoreState(stateFile, &state)
 	}
 	defer stateFile.Close()
-
-	restoreState(stateFile, &state)
 
 	http.HandleFunc("/webhook", receiveHook)
 	http.Handle("/metrics", promhttp.Handler())
