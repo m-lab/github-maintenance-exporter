@@ -17,11 +17,11 @@ var savedState = `
 		"Machines": {
 			"mlab1.abc01.measurement-lab.org": "1",
 			"mlab2.xyz01.measurement-lab.org": "2",
-			"mlab3.def01.measurement-lab.org": "3"
+			"mlab3.def01.measurement-lab.org": "8"
 		},
 		"Sites": {
-			"abc02": "3",
-			"def02": "3",
+			"abc02": "8",
+			"def02": "8",
 			"uvw03": "4",
 			"xyz03": "5"
 
@@ -29,6 +29,9 @@ var savedState = `
 	}
 `
 
+// Every Github webhook contains a header field named X-Hub-Signature which
+// contains a hash of the POST body using a predefined secret. This function
+// generates that hash for testing.
 func generateSignature(secret, msg []byte) string {
 	mac := hmac.New(sha1.New, secret)
 	mac.Write(msg)
@@ -69,7 +72,7 @@ func TestReceiveHook(t *testing.T) {
 		payload        []byte
 	}{
 		{
-			name:           "ping-hook-wrong-events-registered",
+			name:           "ping-hook-missing-issues-issue_comment-events",
 			secretKey:      githubSecret,
 			eventType:      "ping",
 			expectedStatus: http.StatusExpectationFailed,
@@ -164,8 +167,7 @@ func TestReceiveHook(t *testing.T) {
 		req.Header.Set("X-Hub-Signature", sig)
 
 		rec := httptest.NewRecorder()
-		handler := http.HandlerFunc(receiveHook)
-		handler.ServeHTTP(rec, req)
+		receiveHook(rec, req)
 
 		if status := rec.Code; status != test.expectedStatus {
 			t.Errorf("receiveHook(): test %s: wrong HTTP status: got %v; want %v",
@@ -184,7 +186,7 @@ func TestCloseIssue(t *testing.T) {
 	}
 	restoreState(r, &testState)
 
-	mods := closeIssue("3", &testState)
+	mods := closeIssue("8", &testState)
 
 	if mods != expectedMods {
 		t.Errorf("closeIssue(): Expected %d state modifications; got %d", expectedMods, mods)
@@ -200,26 +202,32 @@ func TestParseMessage(t *testing.T) {
 	restoreState(r, &testState)
 
 	tests := []struct {
+		name         string
 		msg          string
 		expectedMods int
 	}{
 		{
+			name:         "add-1-machine-to-maintenance",
 			msg:          `/machine mlab1.abc01 is in maintenance mode.`,
 			expectedMods: 1,
 		},
 		{
+			name:         "add-2-sites-to-maintenance",
 			msg:          `Putting /site abc01 and /site xyz02 into maintenance mode.`,
 			expectedMods: 2,
 		},
 		{
+			name:         "add-1-sites-and-1-machine-to-maintenance",
 			msg:          `Putting /site abc01 and /machine mlab1.xyz02 into maintenance mode.`,
 			expectedMods: 2,
 		},
 		{
+			name:         "remove-1-machine-and-1-site-from-maintenance",
 			msg:          `Removing /machine mlab2.xyz01 del and /site uvw02 del from maintenance.`,
 			expectedMods: 2,
 		},
 		{
+			name:         "3-malformed-flags",
 			msg:          `Add /machine and /site vw02 to maintenance. Removing /site lol del.`,
 			expectedMods: 0,
 		},
@@ -228,7 +236,8 @@ func TestParseMessage(t *testing.T) {
 	for _, test := range tests {
 		mods := parseMessage(test.msg, "99", &testState)
 		if mods != test.expectedMods {
-			t.Errorf("parseMessage(): Expected %d state modifications; got %d", test.expectedMods, mods)
+			t.Errorf("parseMessage(): %s: expected %d state modifications; got %d",
+				test.name, test.expectedMods, mods)
 		}
 	}
 }
