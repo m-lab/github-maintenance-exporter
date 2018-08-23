@@ -1,7 +1,10 @@
 language: go
 
 install:
+- go get github.com/google/go-github/github
 - go get github.com/mattn/goveralls
+- go get github.com/prometheus/client_golang/prometheus
+- go get github.com/prometheus/client_golang/prometheus/promhttp
 
 script:
 - go test -v -coverprofile=coverage.out
