@@ -19,6 +19,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"io"
@@ -39,8 +40,9 @@ const cEnterMaintenance float64 = 1
 const cLeaveMaintenance float64 = 0
 
 var (
-	fListenAddress string // The interface and port to listen on.
-	fStateFilePath string // The filesystem path to write the maintenance state file.
+	fListenAddress    string // Interface and port to listen on.
+	fStateFilePath    string // Filesystem path to write the maintenance state file.
+	fGitHubSecretPath string // Filesystem path to file which contains the shared Github secret.
 
 	githubSecret []byte // The symetric secret used to validate that the webhook actually came from Github.
 
@@ -326,6 +328,8 @@ func init() {
 		"Address to listen on for telemetry.")
 	flag.StringVar(&fStateFilePath, "storage.state-file", "/tmp/gmx-state",
 		"Filesystem path for the state file.")
+	flag.StringVar(&fGitHubSecretPath, "storage.github-secret", "github-secret",
+		"Filesystem path of file containing the shared Github webhook secret.")
 	prometheus.MustRegister(metricError)
 	prometheus.MustRegister(metricMachine)
 	prometheus.MustRegister(metricSite)
@@ -333,6 +337,7 @@ func init() {
 
 func main() {
 	flag.Parse()
+
 	stateFile, err := os.Open(fStateFilePath)
 	if err != nil {
 		log.Printf("WARNING: Failed to open state file %s: %s", fStateFilePath, err)
@@ -341,6 +346,24 @@ func main() {
 		restoreState(stateFile, &state)
 	}
 	stateFile.Close()
+
+	secretFile, err := os.Open(fGitHubSecretPath)
+	if err != nil {
+		log.Printf("ERROR: Failed to open secret file %s: %s", fGitHubSecretPath, err)
+		os.Exit(1)
+	}
+	secret, err := ioutil.ReadAll(secretFile)
+	if err != nil {
+		log.Printf("ERROR: Failed to read secret file %s: %s", fGitHubSecretPath, err)
+		os.Exit(1)
+	}
+	secretTrimmed := bytes.TrimSpace(secret)
+	if len(secretTrimmed) == 0 {
+		log.Printf("ERROR: Github secret file %s is empty.", fGitHubSecretPath)
+		os.Exit(1)
+	}
+	githubSecret = secretTrimmed
+	secretFile.Close()
 
 	http.HandleFunc("/webhook", receiveHook)
 	http.Handle("/metrics", promhttp.Handler())
