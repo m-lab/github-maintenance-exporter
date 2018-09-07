@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/hex"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,6 +36,30 @@ func generateSignature(secret, msg []byte) string {
 	mac := hmac.New(sha1.New, secret)
 	mac.Write(msg)
 	return "sha1=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestRootHandler(t *testing.T) {
+	expectedStatus := http.StatusOK
+	expectedPayload := "GitHub Maintenance Exporter"
+
+	req, err := http.NewRequest("POST", "/", strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	rootHandler(rec, req)
+
+	if status := rec.Code; status != expectedStatus {
+		t.Errorf("rootHandler(): test %s: wrong HTTP status: got %v; want %v",
+			"TestRootHandler", rec.Code, expectedStatus)
+	}
+
+	bytes, _ := ioutil.ReadAll(rec.Body)
+	payload := string(bytes)
+	if string(payload) != expectedPayload {
+		t.Errorf("rootHandler(): test %s: unexpected return text: got %s; want %s",
+			"TestRootHandler", payload, expectedPayload)
+	}
 }
 
 func TestRestoreState(t *testing.T) {
