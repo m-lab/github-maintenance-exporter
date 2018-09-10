@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -237,6 +238,15 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 	return mods
 }
 
+// rootHandler implements the simplest possible handler for root requests,
+// simply printing the name of the utility and returning a 200 status. This
+// could be used by, for example, kubernetes aliveness checks.
+func rootHandler(resp http.ResponseWriter, req *http.Request) {
+	fmt.Fprintf(resp, "GitHub Maintenance Exporter")
+	resp.WriteHeader(http.StatusOK)
+	return
+}
+
 // receiveHook is the handler function for received webhooks. It validates the
 // hook, parses the payload, makes sure that the hook event matches at least one
 // event this exporter handles, then passes off the payload to parseMessage.
@@ -328,7 +338,7 @@ func init() {
 		"Address to listen on for telemetry.")
 	flag.StringVar(&fStateFilePath, "storage.state-file", "/tmp/gmx-state",
 		"Filesystem path for the state file.")
-	flag.StringVar(&fGitHubSecretPath, "storage.github-secret", "github-secret",
+	flag.StringVar(&fGitHubSecretPath, "storage.github-secret", "",
 		"Filesystem path of file containing the shared Github webhook secret.")
 	prometheus.MustRegister(metricError)
 	prometheus.MustRegister(metricMachine)
@@ -347,24 +357,35 @@ func main() {
 	}
 	stateFile.Close()
 
-	secretFile, err := os.Open(fGitHubSecretPath)
-	if err != nil {
-		log.Printf("ERROR: Failed to open secret file %s: %s", fGitHubSecretPath, err)
-		os.Exit(1)
+	// If provided, read the GitHub shared webhook secret from a file, else expect to
+	// find it in the environment.
+	if fGitHubSecretPath != "" {
+		secretFile, err := os.Open(fGitHubSecretPath)
+		if err != nil {
+			log.Printf("ERROR: Failed to open secret file %s: %s", fGitHubSecretPath, err)
+			os.Exit(1)
+		}
+		secret, err := ioutil.ReadAll(secretFile)
+		if err != nil {
+			log.Printf("ERROR: Failed to read secret file %s: %s", fGitHubSecretPath, err)
+			os.Exit(1)
+		}
+		secretTrimmed := bytes.TrimSpace(secret)
+		if len(secretTrimmed) == 0 {
+			log.Printf("ERROR: Github secret file %s is empty.", fGitHubSecretPath)
+			os.Exit(1)
+		}
+		githubSecret = secretTrimmed
+		secretFile.Close()
+	} else {
+		githubSecret = []byte(os.Getenv("GITHUB_WEBHOOK_SECRET"))
 	}
-	secret, err := ioutil.ReadAll(secretFile)
-	if err != nil {
-		log.Printf("ERROR: Failed to read secret file %s: %s", fGitHubSecretPath, err)
-		os.Exit(1)
-	}
-	secretTrimmed := bytes.TrimSpace(secret)
-	if len(secretTrimmed) == 0 {
-		log.Printf("ERROR: Github secret file %s is empty.", fGitHubSecretPath)
-		os.Exit(1)
-	}
-	githubSecret = secretTrimmed
-	secretFile.Close()
 
+	if len(githubSecret) == 0 {
+		log.Fatal("No GitHub webhook secret found.")
+	}
+
+	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/webhook", receiveHook)
 	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(fListenAddress, nil))
