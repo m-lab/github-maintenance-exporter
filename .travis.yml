@@ -14,21 +14,21 @@ script:
 deploy:
 # Sandbox
 - provider: script
-  script: ./kubectl.sh mlab-sandbox ./deploy_gmx.sh
+  script: ./kubectl.sh mlab-sandbox prometheus-federation ./deploy_gmx.sh
   on:
     repo: m-lab/github-maintenance-exporter
     branch: sandbox-*
     condition: "$TRAVIS_EVENT_TYPE == push"
 # Staging
 - provider: script
-  script: ./kubectl.sh mlab-staging ./deploy_gmx.sh
+  script: ./kubectl.sh mlab-staging prometheus-federation ./deploy_gmx.sh
   on:
     repo: m-lab/github-maintenance-exporter
     branch: master
     condition: "$TRAVIS_EVENT_TYPE == push"
 # Production
 - provider: script
-  script: ./kubectl.sh mlab-oti ./deploy_gmx.sh
+  script: ./kubectl.sh mlab-oti prometheus-federation ./deploy_gmx.sh
   on:
     repo: m-lab/github-maintenance-exporter
     tags: true
