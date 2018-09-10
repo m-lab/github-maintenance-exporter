@@ -238,7 +238,7 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 	return mods
 }
 
-// rootHanlder implements the simplest possible handler for root requests,
+// rootHandler implements the simplest possible handler for root requests,
 // simply printing the name of the utility and returning a 200 status. This
 // could be used by, for example, kubernetes aliveness checks.
 func rootHandler(resp http.ResponseWriter, req *http.Request) {
@@ -379,6 +379,10 @@ func main() {
 		secretFile.Close()
 	} else {
 		githubSecret = []byte(os.Getenv("GITHUB_WEBHOOK_SECRET"))
+	}
+
+	if len(githubSecret) == 0 {
+		log.Fatal("No GitHub webhook secret found.")
 	}
 
 	http.HandleFunc("/", rootHandler)

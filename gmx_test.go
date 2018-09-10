@@ -49,7 +49,7 @@ func TestRootHandler(t *testing.T) {
 	rec := httptest.NewRecorder()
 	rootHandler(rec, req)
 
-	if status := rec.Code; status != expectedStatus {
+	if rec.Code != expectedStatus {
 		t.Errorf("rootHandler(): test %s: wrong HTTP status: got %v; want %v",
 			"TestRootHandler", rec.Code, expectedStatus)
 	}
