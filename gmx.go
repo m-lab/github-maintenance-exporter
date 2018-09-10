@@ -382,7 +382,7 @@ func main() {
 	}
 
 	if len(githubSecret) == 0 {
-		log.Fatal("No GitHub webhook secret found.")
+		log.Fatal("ERROR: No GitHub webhook secret found.")
 	}
 
 	http.HandleFunc("/", rootHandler)
