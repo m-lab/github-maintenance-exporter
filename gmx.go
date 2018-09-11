@@ -159,7 +159,7 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 	for machine, issue := range s.Machines {
 		if issue == issueNumber {
 			delete(s.Machines, machine)
-			metricMachine.WithLabelValues(machine+".measurement-lab.org", issueNumber).Set(0)
+			metricMachine.WithLabelValues(machine, issueNumber).Set(0)
 			log.Printf("INFO: Machine %s was removed from maintenance because issue was closed.", machine)
 			mods++
 		}
