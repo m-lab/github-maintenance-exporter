@@ -5,7 +5,30 @@ install:
 - go get github.com/mattn/goveralls
 - go get github.com/prometheus/client_golang/prometheus
 - go get github.com/prometheus/client_golang/prometheus/promhttp
+- ./travis/install_gcloud.sh kubectl
 
 script:
 - go test -v -coverprofile=coverage.out
 - $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci
+
+deploy:
+# Sandbox
+- provider: script
+  script: ./travis/kubectl.sh mlab-sandbox prometheus-federation ./deploy_gmx.sh
+  on:
+    repo: m-lab/github-maintenance-exporter
+    branch: sandbox-*
+    condition: "$TRAVIS_EVENT_TYPE == push"
+# Staging
+- provider: script
+  script: ./travis/kubectl.sh mlab-staging prometheus-federation ./deploy_gmx.sh
+  on:
+    repo: m-lab/github-maintenance-exporter
+    branch: master
+    condition: "$TRAVIS_EVENT_TYPE == push"
+# Production
+- provider: script
+  script: ./travis/kubectl.sh mlab-oti prometheus-federation ./deploy_gmx.sh
+  on:
+    repo: m-lab/github-maintenance-exporter
+    tags: true
