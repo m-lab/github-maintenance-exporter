@@ -66,8 +66,8 @@ var (
 	// Prometheus metric for exposing machine maintenance status.
 	metricMachine = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "gmx_machine_state",
-			Help: "State of machine.",
+			Name: "gmx_machine_maintenance",
+			Help: "Whether a machine is in maitenance mode or not.",
 		},
 		[]string{
 			"machine",
@@ -77,8 +77,8 @@ var (
 	// Prometheus metric for exposing site maintenance status.
 	metricSite = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "gmx_site_state",
-			Help: "State of site.",
+			Name: "gmx_site_maintenance",
+			Help: "Whether a site is in maintenance mode or not.",
 		},
 		[]string{
 			"site",
