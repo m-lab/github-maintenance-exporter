@@ -31,6 +31,7 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/google/go-github/github"
 	"github.com/prometheus/client_golang/prometheus"
@@ -39,6 +40,8 @@ import (
 
 const cEnterMaintenance float64 = 1
 const cLeaveMaintenance float64 = 0
+
+const rfc339DateFormat = `\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d([+-][0-2]\d:[0-5]\d|Z)`
 
 var (
 	fListenAddress    string // Interface and port to listen on.
@@ -49,9 +52,13 @@ var (
 
 	mux sync.Mutex
 
-	machineRegExp = regexp.MustCompile(`\/machine (mlab[1-4]{1}\.[a-z]{3}[0-9c]{2})\s?(del)?`)
-	siteRegExp    = regexp.MustCompile(`\/site ([a-z]{3}[0-9c]{2})\s?(del)?`)
+	machineRegExp  = regexp.MustCompile(`\/machine (mlab[1-4]{1}\.[a-z]{3}[0-9c]{2})\s?(del)?`)
+	siteRegExp     = regexp.MustCompile(`\/site ([a-z]{3}[0-9c]{2})\s?(del)?`)
+	scheduleRegExp = regexp.MustCompile(`\/schedule (site|machine) ` +
+		`([a-z]{3}[0-9c]{2}|mlab[1-4]{1}\.[a-z]{3}[0-9c]{2}) ` + // site or machine
+		"(" + rfc339DateFormat + ") (" + rfc339DateFormat + `)\s?(del)?`)
 
+	// Scheduler
 	// Prometheus metric for exposing any errors that the exporter encounters.
 	metricError = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -87,14 +94,25 @@ var (
 	)
 
 	state = maintenanceState{
-		Machines: make(map[string]string),
-		Sites:    make(map[string]string),
+		Machines:          make(map[string]string),
+		Sites:             make(map[string]string),
+		ScheduledSites:    make(map[string][]scheduledEvent),
+		ScheduledMachines: make(map[string][]scheduledEvent),
 	}
 )
 
 // maintenanceState is a struct for storing both machine and site maintenance states.
 type maintenanceState struct {
-	Machines, Sites map[string]string
+	Machines, Sites                   map[string]string
+	ScheduledSites, ScheduledMachines map[string][]scheduledEvent
+}
+
+// scheduledEvent is a struct for storing a scheduled maintenance for both
+// machines and sites.
+type scheduledEvent struct {
+	issueNumber string
+	startDate   time.Time
+	endDate     time.Time
 }
 
 // writeState serializes the content of a maintenanceState object into JSON and
@@ -235,7 +253,86 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 		}
 	}
 
+	// Parse /schedule flag
+	scheduleMatches := scheduleRegExp.FindAllStringSubmatch(msg, -1)
+	if len(scheduleMatches) > 0 {
+		for _, schedule := range scheduleMatches {
+			if len(schedule) > 3 {
+				log.Printf("INFO: Schedule flag found for %s: %s", schedule[1], schedule[2])
+
+				start, err := time.Parse(time.RFC3339, schedule[3])
+				if err != nil {
+					log.Printf("ERROR: Unparseable date: %s", schedule[3])
+					break
+				}
+
+				end, err := time.Parse(time.RFC3339, schedule[5])
+				if err != nil {
+					log.Printf("ERROR: Unparseable date: %s", schedule[5])
+					break
+				}
+
+				if schedule[1] == "site" {
+					if schedule[4] == "del" {
+						// Remove scheduled maintenance for this site and unset GMX status if set.
+						updateScheduledState(s.ScheduledSites, schedule[2], metricSite, issueNumber, cLeaveMaintenance, start, end)
+						mods++
+					} else {
+						// Schedule maintenance for this site.
+						updateScheduledState(s.ScheduledSites, schedule[2], metricSite, issueNumber, cEnterMaintenance, start, end)
+						mods++
+					}
+				} else if schedule[1] == "machine" {
+					log.Printf("DEBUG: machine")
+					if schedule[4] == "del" {
+						// Remove scheduled maintenance for this machines and unset GMX status if set.
+						updateScheduledState(s.ScheduledMachines, schedule[2], metricMachine, issueNumber, cLeaveMaintenance, start, end)
+						mods++
+					} else {
+						// Schedule maintenance for this machine.
+						updateScheduledState(s.ScheduledMachines, schedule[2], metricMachine, issueNumber, cEnterMaintenance, start, end)
+						mods++
+					}
+				}
+			}
+		}
+	}
+
 	return mods
+}
+
+func updateScheduledState(scheduleMap map[string][]scheduledEvent, key string,
+	metricState *prometheus.GaugeVec, issue string, action float64, start time.Time, end time.Time) {
+
+	mux.Lock()
+	defer mux.Unlock()
+
+	switch action {
+	case cLeaveMaintenance:
+		i := 0
+		for i, v := range scheduleMap[key] {
+			if !(v.startDate == start && v.endDate == end) {
+				scheduleMap[key][i] = v
+				i++
+			}
+		}
+		scheduleMap[key] = scheduleMap[key][:i]
+		log.Printf("INFO: %s was unscheduled for maintenance. Any currently ongoing maintenance has been removed.", key)
+	case cEnterMaintenance:
+		scheduleMap[key] = append(scheduleMap[key], scheduledEvent{
+			issueNumber: issue,
+			startDate:   start,
+			endDate:     end,
+		})
+		log.Printf("INFO: %s was scheduled for maintenance from %s to %s", key, start, end)
+		// TODO: actually schedule
+	default:
+		log.Printf("WARNING: Unknown action type: %f", action)
+	}
+}
+
+func scheduleMachine(machine string, date time.Time) {
+
 }
 
 // rootHandler implements the simplest possible handler for root requests,

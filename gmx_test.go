@@ -25,7 +25,9 @@ var savedState = `
 			"uvw03": "4",
 			"xyz03": "5"
 
-		}
+		},
+		"ScheduledSites": {},
+		"ScheduledMachines": {}
 	}
 `
 
@@ -175,7 +177,6 @@ func TestReceiveHook(t *testing.T) {
 			`),
 		},
 	}
-
 	for _, test := range tests {
 		sig := generateSignature(test.secretKey, test.payload)
 		req, err := http.NewRequest("POST", "/webhook", strings.NewReader(string(test.payload)))
@@ -244,6 +245,11 @@ func TestParseMessage(t *testing.T) {
 			name:         "3-malformed-flags",
 			msg:          `Add /machine and /site vw02 to maintenance. Removing /site lol del.`,
 			expectedMods: 0,
+		},
+		{
+			name:         "schedule-1-site-maintenance",
+			msg:          `/schedule site uvw02 2019-03-01T00:00:00Z 2019-03-02T00:00:00Z`,
+			expectedMods: 1,
 		},
 	}
 
