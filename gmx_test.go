@@ -251,6 +251,21 @@ func TestParseMessage(t *testing.T) {
 			msg:          `/schedule site uvw02 2019-03-01T00:00:00Z 2019-03-02T00:00:00Z`,
 			expectedMods: 1,
 		},
+		{
+			name:         "schedule-1-machine-maintenance",
+			msg:          `/schedule machine mlab1.uvw02 2019-03-01T00:00:00Z 2019-03-02T00:00:00Z`,
+			expectedMods: 1,
+		},
+		{
+			name:         "schedule-1-machine-and-1-site-maintenance",
+			msg:          `/schedule machine mlab1.uvw02 2019-03-01T00:00:00Z 2019-03-02T00:00:00Z and /schedule site uvw02 2019-03-01T00:00:00Z 2019-03-02T00:00:00Z`,
+			expectedMods: 2,
+		},
+		{
+			name:         "schedule-1-machine-malformed-date",
+			msg:          `/schedule machine mlab1.uvw02 2019-03-01T00:00:00 2019-03-02T00:00:00`,
+			expectedMods: 0,
+		},
 	}
 
 	for _, test := range tests {

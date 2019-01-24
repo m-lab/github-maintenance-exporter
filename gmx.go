@@ -196,22 +196,91 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 	return mods
 }
 
+// isMaintenanceActive checks if there is an active maintenance mode.
+// This takes into account both normal GMX and scheduled GMX, and it's
+// used to check if the Prometheus metric can be changed after removing
+// either of them.
+func isMaintenanceActive(gmx map[string]string,
+	scheduled map[string][]scheduledEvent, toCheck string) bool {
+	// Check for active GMX maintenance
+	if _, ok := gmx[toCheck]; ok {
+		return true
+	}
+
+	// Check for active scheduled GMX maintenance
+	if val, ok := scheduled[toCheck]; ok {
+		for _, schedule := range val {
+			if time.Now().After(schedule.startDate) && time.Now().Before(schedule.endDate) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // updateState modifies the maintenance state of a machine or site in the
-// in-memory map as well as updating the Prometheus metric.
-func updateState(stateMap map[string]string, mapKey string, metricState *prometheus.GaugeVec,
-	issueNumber string, action float64) {
+// in-memory map as well as updating the Prometheus metrics. If there is an
+// ongoing scheduled maintenance, the metric is not updated.
+func updateState(gmx map[string]string, scheduled map[string][]scheduledEvent,
+	mapKey string, metricState *prometheus.GaugeVec, issueNumber string,
+	action float64) {
 	mux.Lock()
 	defer mux.Unlock()
 
 	switch action {
 	case cLeaveMaintenance:
-		delete(stateMap, mapKey)
-		metricState.WithLabelValues(mapKey, issueNumber).Set(action)
+		delete(gmx, mapKey)
+
+		// Check that there is no other maintenance before updating the metric.
+		if !isMaintenanceActive(gmx, scheduled, mapKey) {
+			metricState.WithLabelValues(mapKey, issueNumber).Set(action)
+		}
 		log.Printf("INFO: Machine %s was removed from maintenance.", mapKey)
 	case cEnterMaintenance:
-		stateMap[mapKey] = issueNumber
+		gmx[mapKey] = issueNumber
 		metricState.WithLabelValues(mapKey, issueNumber).Set(action)
 		log.Printf("INFO: %s was added to maintenance.", mapKey)
+	default:
+		log.Printf("WARNING: Unknown action type: %f", action)
+	}
+}
+
+// updateScheduledState updates the scheduled maintenance for a machine or site
+// in the in-memory map. In case of removal, it updates the Prometheus metric
+// only when there is no other ongoing scheduled or normal maintenance.
+func updateScheduledState(gmx map[string]string, scheduled map[string][]scheduledEvent, key string,
+	metricState *prometheus.GaugeVec, issue string, action float64, start time.Time, end time.Time) {
+
+	mux.Lock()
+	defer mux.Unlock()
+
+	switch action {
+	case cLeaveMaintenance:
+		i := 0
+		for i, v := range scheduled[key] {
+			if !(v.startDate == start && v.endDate == end) {
+				scheduled[key][i] = v
+				i++
+			}
+		}
+		scheduled[key] = scheduled[key][:i]
+
+		// Check that there is no other maintenance before updating the metric.
+		if !isMaintenanceActive(gmx, scheduled, key) {
+			metricState.WithLabelValues(key, issue).Set(action)
+			log.Printf("INFO: Prometheus metric for %s has been set to %f.", key, action)
+		}
+
+		log.Printf("INFO: %s was unscheduled for maintenance.", key)
+	case cEnterMaintenance:
+		scheduled[key] = append(scheduled[key], scheduledEvent{
+			issueNumber: issue,
+			startDate:   start,
+			endDate:     end,
+		})
+		log.Printf("INFO: %s was scheduled for maintenance from %s to %s", key, start, end)
+		// TODO: actually schedule
 	default:
 		log.Printf("WARNING: Unknown action type: %f", action)
 	}
@@ -230,10 +299,10 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 			log.Printf("INFO: Flag found for machine: %s", machine[1])
 			label := machine[1] + ".measurement-lab.org"
 			if machine[2] == "del" {
-				updateState(s.Machines, label, metricMachine, issueNumber, cLeaveMaintenance)
+				updateState(s.Machines, s.ScheduledMachines, label, metricMachine, issueNumber, cLeaveMaintenance)
 				mods++
 			} else {
-				updateState(s.Machines, label, metricMachine, issueNumber, cEnterMaintenance)
+				updateState(s.Machines, s.ScheduledMachines, label, metricMachine, issueNumber, cEnterMaintenance)
 				mods++
 			}
 		}
@@ -244,10 +313,10 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 		for _, site := range siteMatches {
 			log.Printf("INFO: Flag found for site: %s", site[1])
 			if site[2] == "del" {
-				updateState(s.Sites, site[1], metricSite, issueNumber, 0)
+				updateState(s.Sites, s.ScheduledSites, site[1], metricSite, issueNumber, 0)
 				mods++
 			} else {
-				updateState(s.Sites, site[1], metricSite, issueNumber, 1)
+				updateState(s.Sites, s.ScheduledSites, site[1], metricSite, issueNumber, 1)
 				mods++
 			}
 		}
@@ -257,82 +326,49 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 	scheduleMatches := scheduleRegExp.FindAllStringSubmatch(msg, -1)
 	if len(scheduleMatches) > 0 {
 		for _, schedule := range scheduleMatches {
-			if len(schedule) > 3 {
-				log.Printf("INFO: Schedule flag found for %s: %s", schedule[1], schedule[2])
+			log.Printf("INFO: Schedule flag found for %s: %s", schedule[1], schedule[2])
 
-				start, err := time.Parse(time.RFC3339, schedule[3])
-				if err != nil {
-					log.Printf("ERROR: Unparseable date: %s", schedule[3])
-					break
-				}
+			// Parse start/end date according to RFC3339
+			start, err := time.Parse(time.RFC3339, schedule[3])
+			if err != nil {
+				log.Printf("ERROR: Unparseable date: %s", schedule[3])
+				break
+			}
 
-				end, err := time.Parse(time.RFC3339, schedule[5])
-				if err != nil {
-					log.Printf("ERROR: Unparseable date: %s", schedule[5])
-					break
-				}
+			end, err := time.Parse(time.RFC3339, schedule[5])
+			if err != nil {
+				log.Printf("ERROR: Unparseable date: %s", schedule[5])
+				break
+			}
 
-				if schedule[1] == "site" {
-					if schedule[4] == "del" {
-						// Remove scheduled maintenance for this site and unset GMX status if set.
-						updateScheduledState(s.ScheduledSites, schedule[2], metricSite, issueNumber, cLeaveMaintenance, start, end)
-						mods++
-					} else {
-						// Schedule maintenance for this site.
-						updateScheduledState(s.ScheduledSites, schedule[2], metricSite, issueNumber, cEnterMaintenance, start, end)
-						mods++
-					}
-				} else if schedule[1] == "machine" {
-					log.Printf("DEBUG: machine")
-					if schedule[4] == "del" {
-						// Remove scheduled maintenance for this machines and unset GMX status if set.
-						updateScheduledState(s.ScheduledMachines, schedule[2], metricMachine, issueNumber, cLeaveMaintenance, start, end)
-						mods++
-					} else {
-						// Schedule maintenance for this machine.
-						updateScheduledState(s.ScheduledMachines, schedule[2], metricMachine, issueNumber, cEnterMaintenance, start, end)
-						mods++
-					}
+			switch schedule[1] {
+			case "site":
+				if schedule[4] == "del" {
+					// Remove scheduled maintenance for this site and unset GMX status if set.
+					updateScheduledState(s.Sites, s.ScheduledSites, schedule[2], metricSite, issueNumber, cLeaveMaintenance, start, end)
+					mods++
+				} else {
+					// Schedule maintenance for this site.
+					updateScheduledState(s.Sites, s.ScheduledSites, schedule[2], metricSite, issueNumber, cEnterMaintenance, start, end)
+					mods++
 				}
+			case "machine":
+				if schedule[4] == "del" {
+					// Remove scheduled maintenance for this machines and unset GMX status if set.
+					updateScheduledState(s.Machines, s.ScheduledMachines, schedule[2], metricMachine, issueNumber, cLeaveMaintenance, start, end)
+					mods++
+				} else {
+					// Schedule maintenance for this machine.
+					updateScheduledState(s.Machines, s.ScheduledMachines, schedule[2], metricMachine, issueNumber, cEnterMaintenance, start, end)
+					mods++
+				}
+			default:
+				log.Printf("ERROR: %s should be 'site' or 'machine'", schedule[1])
 			}
 		}
 	}
 
 	return mods
-}
-
-func updateScheduledState(scheduleMap map[string][]scheduledEvent, key string,
-	metricState *prometheus.GaugeVec, issue string, action float64, start time.Time, end time.Time) {
-
-	mux.Lock()
-	defer mux.Unlock()
-
-	switch action {
-	case cLeaveMaintenance:
-		i := 0
-		for i, v := range scheduleMap[key] {
-			if !(v.startDate == start && v.endDate == end) {
-				scheduleMap[key][i] = v
-				i++
-			}
-		}
-		scheduleMap[key] = scheduleMap[key][:i]
-		log.Printf("INFO: %s was unscheduled for maintenance. Any currently ongoing maintenance has been removed.", key)
-	case cEnterMaintenance:
-		scheduleMap[key] = append(scheduleMap[key], scheduledEvent{
-			issueNumber: issue,
-			startDate:   start,
-			endDate:     end,
-		})
-		log.Printf("INFO: %s was scheduled for maintenance from %s to %s", key, start, end)
-		// TODO: actually schedule
-	default:
-		log.Printf("WARNING: Unknown action type: %f", action)
-	}
-}
-
-func scheduleMachine(machine string, date time.Time) {
-
 }
 
 // rootHandler implements the simplest possible handler for root requests,
