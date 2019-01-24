@@ -343,7 +343,7 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 
 			switch schedule[1] {
 			case "site":
-				if schedule[4] == "del" {
+				if schedule[7] == "del" {
 					// Remove scheduled maintenance for this site and unset GMX status if set.
 					updateScheduledState(s.Sites, s.ScheduledSites, schedule[2], metricSite, issueNumber, cLeaveMaintenance, start, end)
 					mods++
@@ -353,7 +353,7 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 					mods++
 				}
 			case "machine":
-				if schedule[4] == "del" {
+				if schedule[7] == "del" {
 					// Remove scheduled maintenance for this machines and unset GMX status if set.
 					updateScheduledState(s.Machines, s.ScheduledMachines, schedule[2], metricMachine, issueNumber, cLeaveMaintenance, start, end)
 					mods++

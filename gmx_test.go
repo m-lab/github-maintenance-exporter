@@ -26,8 +26,24 @@ var savedState = `
 			"xyz03": "5"
 
 		},
-		"ScheduledSites": {},
-		"ScheduledMachines": {}
+		"ScheduledSites": {
+			"abc01": [
+				{
+					"issueNumber": 1,
+					"startDate": "2019-01-01T00:00:00Z",
+					"endDate": "2019-01-02T00:00:00Z"
+				}
+			]
+		},
+		"ScheduledMachines": {
+			"mlab1.abc01": [
+				{
+					"issueNumber": 2,
+					"startDate": "2019-01-01T00:00:00Z",
+					"endDate": "2019-01-02T00:00:00Z"
+				}
+			]
+		}
 	}
 `
 
@@ -265,6 +281,11 @@ func TestParseMessage(t *testing.T) {
 			name:         "schedule-1-machine-malformed-date",
 			msg:          `/schedule machine mlab1.uvw02 2019-03-01T00:00:00 2019-03-02T00:00:00`,
 			expectedMods: 0,
+		},
+		{
+			name:         "unschedule-1-machine-and-1-site-maintenance",
+			msg:          `/schedule machine mlab1.abc01 2019-01-01T00:00:00Z 2019-01-02T00:00:00Z del and /schedule site abc01 2019-01-01T00:00:00Z 2019-01-02T00:00:00Z del`,
+			expectedMods: 2,
 		},
 	}
 
