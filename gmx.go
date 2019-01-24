@@ -332,13 +332,13 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 			start, err := time.Parse(time.RFC3339, schedule[3])
 			if err != nil {
 				log.Printf("ERROR: Unparseable date: %s", schedule[3])
-				break
+				continue
 			}
 
 			end, err := time.Parse(time.RFC3339, schedule[5])
 			if err != nil {
 				log.Printf("ERROR: Unparseable date: %s", schedule[5])
-				break
+				continue
 			}
 
 			switch schedule[1] {
