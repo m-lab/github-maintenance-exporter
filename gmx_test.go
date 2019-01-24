@@ -284,7 +284,7 @@ func TestParseMessage(t *testing.T) {
 		},
 		{
 			name:         "unschedule-1-machine-and-1-site-maintenance",
-			msg:          `/schedule machine mlab1.abc01 2019-01-01T00:00:00Z 2019-01-02T00:00:00Z and /schedule site abc01 2019-01-01T00:00:00Z 2019-01-02T00:00:00Z del`,
+			msg:          `/schedule machine mlab1.abc01 2019-01-01T00:00:00Z 2019-01-02T00:00:00Z del and /schedule site abc01 2019-01-01T00:00:00Z 2019-01-02T00:00:00Z del`,
 			expectedMods: 2,
 		},
 	}

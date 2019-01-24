@@ -200,10 +200,10 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 // This takes into account both normal GMX and scheduled GMX, and it's
 // used to check if the Prometheus metric can be changed after removing
 // either of them.
-func isMaintenanceActive(gmx map[string]string,
+func isMaintenanceActive(stateMap map[string]string,
 	scheduled map[string][]scheduledEvent, toCheck string) bool {
 	// Check for active GMX maintenance
-	if _, ok := gmx[toCheck]; ok {
+	if _, ok := stateMap[toCheck]; ok {
 		return true
 	}
 
@@ -222,7 +222,7 @@ func isMaintenanceActive(gmx map[string]string,
 // updateState modifies the maintenance state of a machine or site in the
 // in-memory map as well as updating the Prometheus metrics. If there is an
 // ongoing scheduled maintenance, the metric is not updated.
-func updateState(gmx map[string]string, scheduled map[string][]scheduledEvent,
+func updateState(stateMap map[string]string, scheduledMap map[string][]scheduledEvent,
 	mapKey string, metricState *prometheus.GaugeVec, issueNumber string,
 	action float64) {
 	mux.Lock()
@@ -230,15 +230,15 @@ func updateState(gmx map[string]string, scheduled map[string][]scheduledEvent,
 
 	switch action {
 	case cLeaveMaintenance:
-		delete(gmx, mapKey)
+		delete(stateMap, mapKey)
 
 		// Check that there is no other maintenance before updating the metric.
-		if !isMaintenanceActive(gmx, scheduled, mapKey) {
+		if !isMaintenanceActive(stateMap, scheduledMap, mapKey) {
 			metricState.WithLabelValues(mapKey, issueNumber).Set(action)
 		}
 		log.Printf("INFO: Machine %s was removed from maintenance.", mapKey)
 	case cEnterMaintenance:
-		gmx[mapKey] = issueNumber
+		stateMap[mapKey] = issueNumber
 		metricState.WithLabelValues(mapKey, issueNumber).Set(action)
 		log.Printf("INFO: %s was added to maintenance.", mapKey)
 	default:
@@ -249,7 +249,7 @@ func updateState(gmx map[string]string, scheduled map[string][]scheduledEvent,
 // updateScheduledState updates the scheduled maintenance for a machine or site
 // in the in-memory map. In case of removal, it updates the Prometheus metric
 // only when there is no other ongoing scheduled or normal maintenance.
-func updateScheduledState(gmx map[string]string, scheduled map[string][]scheduledEvent, key string,
+func updateScheduledState(stateMap map[string]string, scheduledMap map[string][]scheduledEvent, key string,
 	metricState *prometheus.GaugeVec, issue string, action float64, start time.Time, end time.Time) {
 
 	mux.Lock()
@@ -258,23 +258,23 @@ func updateScheduledState(gmx map[string]string, scheduled map[string][]schedule
 	switch action {
 	case cLeaveMaintenance:
 		i := 0
-		for i, v := range scheduled[key] {
+		for i, v := range scheduledMap[key] {
 			if !(v.startDate == start && v.endDate == end) {
-				scheduled[key][i] = v
+				scheduledMap[key][i] = v
 				i++
 			}
 		}
-		scheduled[key] = scheduled[key][:i]
+		scheduledMap[key] = scheduledMap[key][:i]
 
 		// Check that there is no other maintenance before updating the metric.
-		if !isMaintenanceActive(gmx, scheduled, key) {
+		if !isMaintenanceActive(stateMap, scheduledMap, key) {
 			metricState.WithLabelValues(key, issue).Set(action)
 			log.Printf("INFO: Prometheus metric for %s has been set to %f.", key, action)
 		}
 
 		log.Printf("INFO: %s was unscheduled for maintenance.", key)
 	case cEnterMaintenance:
-		scheduled[key] = append(scheduled[key], scheduledEvent{
+		scheduledMap[key] = append(scheduledMap[key], scheduledEvent{
 			issueNumber: issue,
 			startDate:   start,
 			endDate:     end,
