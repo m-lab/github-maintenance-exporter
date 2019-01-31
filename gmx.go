@@ -277,16 +277,27 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	case *github.IssuesEvent:
 		log.Println("INFO: Webhook is an Issues event.")
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
-		if event.GetAction() == "closed" {
-			log.Printf("INFO: Issue #%s was closed.", issueNumber)
+		eventAction := event.GetAction()
+		switch eventAction {
+		case "closed", "deleted":
+			log.Printf("INFO: Issue #%s was %s.", issueNumber, eventAction)
 			mods = closeIssue(issueNumber, &state)
-		} else {
+		case "opened", "edited":
 			mods = parseMessage(event.Issue.GetBody(), issueNumber, &state)
+		default:
+			log.Printf("INFO: Unsupported IssueEvent action: %s.", eventAction)
+			status = http.StatusNotImplemented
 		}
 	case *github.IssueCommentEvent:
 		log.Println("INFO: Webhook is an IssueComment event.")
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
-		mods = parseMessage(event.Comment.GetBody(), issueNumber, &state)
+		issueState := event.Issue.GetState()
+		if issueState == "open" {
+			mods = parseMessage(event.Comment.GetBody(), issueNumber, &state)
+		} else {
+			log.Printf("INFO: Ignoring IssueComment event on closed issue #%s.", issueNumber)
+			status = http.StatusExpectationFailed
+		}
 	case *github.PingEvent:
 		log.Println("INFO: Webhook is a Ping event.")
 		var cnt = 0
