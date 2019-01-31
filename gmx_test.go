@@ -161,7 +161,7 @@ func TestReceiveHook(t *testing.T) {
 				{
 					"action": "unlabeled",
 					"issue": {
-						"number": 3,
+						"number": 2,
 						"body": "Issue was unlabeled."
 					}
 				}
@@ -175,7 +175,23 @@ func TestReceiveHook(t *testing.T) {
 			payload:        []byte(`"malformed; 'json }]]}`),
 		},
 		{
-			name:           "issue-hook-good-request-1-mod",
+			name:           "issue-comment-hook-on-closed-issue",
+			secretKey:      githubSecret,
+			eventType:      "issue_comment",
+			expectedStatus: http.StatusExpectationFailed,
+			payload: []byte(`
+				{
+					"action": "created",
+					"issue": {
+						"number": 19,
+						"body": "Closed issue received a new comment.",
+						"state": "closed"
+					}
+				}
+			`),
+		},
+		{
+			name:           "issue-comment-hook-good-request-1-mod",
 			secretKey:      githubSecret,
 			eventType:      "issue_comment",
 			expectedStatus: http.StatusOK,
@@ -184,7 +200,8 @@ func TestReceiveHook(t *testing.T) {
 					"action": "edited",
 					"issue": {
 						"number": 1,
-						"body": "Take /machine mlab1.abc01 del out of maintenance."
+						"body": "Take /machine mlab1.abc01 del out of maintenance.",
+						"state": "open"
 					}
 				}
 			`),
