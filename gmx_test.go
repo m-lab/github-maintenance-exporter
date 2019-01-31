@@ -153,6 +153,21 @@ func TestReceiveHook(t *testing.T) {
 			`),
 		},
 		{
+			name:           "issues-hook-good-request-unsupported-action",
+			secretKey:      githubSecret,
+			eventType:      "issues",
+			expectedStatus: http.StatusNotImplemented,
+			payload: []byte(`
+				{
+					"action": "unlabeled",
+					"issue": {
+						"number": 3,
+						"body": "Issue was unlabeled."
+					}
+				}
+			`),
+		},
+		{
 			name:           "issue-comment-hook-malformed-payload",
 			secretKey:      githubSecret,
 			eventType:      "issue_comment",
