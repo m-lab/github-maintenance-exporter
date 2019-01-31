@@ -291,8 +291,8 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	case *github.IssueCommentEvent:
 		log.Println("INFO: Webhook is an IssueComment event.")
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
-		issueState := event.Issue.State
-		if *issueState == "open" {
+		issueState := event.Issue.GetState()
+		if issueState == "open" {
 			mods = parseMessage(event.Comment.GetBody(), issueNumber, &state)
 		} else {
 			log.Printf("INFO: Ignoring IssueComment event on closed issue #%s.", issueNumber)
