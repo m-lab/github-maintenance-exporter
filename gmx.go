@@ -187,10 +187,27 @@ func updateState(stateMap map[string]string, mapKey string, metricState *prometh
 
 	switch action {
 	case cLeaveMaintenance:
-		delete(stateMap, mapKey)
-		metricState.WithLabelValues(mapKey, issueNumber).Set(action)
-		log.Printf("INFO: Machine %s was removed from maintenance.", mapKey)
+		// Only remove a maintenance entry if this request is coming from the issue
+		// that created the maintenance entry.
+		for maintenanceEntity, issue := range stateMap {
+			if stateMap[maintenanceEntity] == issueNumber:
+				delete(stateMap, mapKey)
+				metricState.WithLabelValues(mapKey, issueNumber).Set(action)
+				log.Printf("INFO: %s was removed from maintenance.", mapKey)
+				return
+			}
+		}
+		log.Printf("ERROR: %s was not put into maintenance mode by issue #%s.", mapKey, issueNumber)
+		metricError.WithLabelValues("duplicatemaintenance", "updateState").Add(1)
 	case cEnterMaintenance:
+		// Do not create a maintenance entry if one already exists for a site or machine.
+		for maintenanceEntity, issue := range stateMap {
+			if stateMap[maintenanceEntity] == issueNumber:
+				log.Printf("ERROR: %s is already in maintenance mode.", mapKey)
+				metricError.WithLabelValues("duplicatemaintenance", "updateState").Add(1)
+				return
+			}
+		}
 		stateMap[mapKey] = issueNumber
 		metricState.WithLabelValues(mapKey, issueNumber).Set(action)
 		log.Printf("INFO: %s was added to maintenance.", mapKey)
