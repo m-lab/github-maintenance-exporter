@@ -167,10 +167,10 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 		if len(mapElement) == 0 {
 			delete(stateMap, mapKey)
 			metricState.WithLabelValues(mapKey).Set(0)
-			log.Printf("INFO: %s was removed from maintenance.", mapKey)
 		} else {
 			stateMap[mapKey] = mapElement
 		}
+		log.Printf("INFO: %s was removed from maintenance for issue #%s", mapKey, issueNumber)
 		mods++
 	}
 	return mods
@@ -216,7 +216,7 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 	case cEnterMaintenance:
 		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
 		metricState.WithLabelValues(mapKey).Set(action)
-		log.Printf("INFO: %s was added to maintenance.", mapKey)
+		log.Printf("INFO: %s was added to maintenance for issue #%s", mapKey, issueNumber)
 	default:
 		log.Printf("WARNING: Unknown action type: %f", action)
 	}
