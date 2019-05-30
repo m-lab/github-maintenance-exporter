@@ -15,15 +15,15 @@ import (
 var savedState = `
 	{
 		"Machines": {
-			"mlab1.abc01.measurement-lab.org": "1",
-			"mlab2.xyz01.measurement-lab.org": "2",
-			"mlab3.def01.measurement-lab.org": "8"
+			"mlab1.abc01.measurement-lab.org": ["1"],
+			"mlab2.xyz01.measurement-lab.org": ["2"],
+			"mlab3.def01.measurement-lab.org": ["8"]
 		},
 		"Sites": {
-			"abc02": "8",
-			"def02": "8",
-			"uvw03": "4",
-			"xyz03": "5"
+			"abc02": ["8"],
+			"def02": ["8"],
+			"uvw03": ["4"],
+			"xyz03": ["5"]
 
 		}
 	}

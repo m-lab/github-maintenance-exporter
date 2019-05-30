@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -71,7 +72,6 @@ var (
 		},
 		[]string{
 			"machine",
-			"issue",
 		},
 	)
 	// Prometheus metric for exposing site maintenance status.
@@ -82,19 +82,18 @@ var (
 		},
 		[]string{
 			"site",
-			"issue",
 		},
 	)
 
 	state = maintenanceState{
-		Machines: make(map[string]string),
-		Sites:    make(map[string]string),
+		Machines: make(map[string][]string),
+		Sites:    make(map[string][]string),
 	}
 )
 
 // maintenanceState is a struct for storing both machine and site maintenance states.
 type maintenanceState struct {
-	Machines, Sites map[string]string
+	Machines, Sites map[string][]string
 }
 
 // writeState serializes the content of a maintenanceState object into JSON and
@@ -124,29 +123,57 @@ func restoreState(r io.Reader, s *maintenanceState) error {
 	data, err := ioutil.ReadAll(r)
 	if err != nil {
 		log.Printf("ERROR: Failed to read state data from %s: %s", fStateFilePath, err)
-		metricError.WithLabelValues("readfile", "restoreState").Add(1)
+		metricError.WithLabelValues("readfile", "restoreState").Inc()
 		return err
 	}
 
 	err = json.Unmarshal(data, &s)
 	if err != nil {
 		log.Printf("ERROR: Failed to unmarshal JSON: %s", err)
-		metricError.WithLabelValues("unmarshaljson", "restoreState").Add(1)
+		metricError.WithLabelValues("unmarshaljson", "restoreState").Inc()
 		return err
 	}
 
 	// Restore machine maintenance state.
-	for machine, issue := range s.Machines {
-		metricMachine.WithLabelValues(machine, issue).Set(cEnterMaintenance)
+	for machine := range s.Machines {
+		metricMachine.WithLabelValues(machine).Set(cEnterMaintenance)
 	}
 
 	// Restore site maintenance state.
-	for site, issue := range state.Sites {
-		metricSite.WithLabelValues(site, issue).Set(cEnterMaintenance)
+	for site := range state.Sites {
+		metricSite.WithLabelValues(site).Set(cEnterMaintenance)
 	}
 
 	log.Printf("INFO: Successfully restored %s from disk.", fStateFilePath)
 	return nil
+}
+
+func removeIssue(stateMap map[string][]string, metricState *prometheus.GaugeVec,
+	issueNumber string) int {
+	var mods = 0
+	for key, issues := range stateMap {
+		issueIndex := sort.SearchStrings(issues, issueNumber)
+		// If an element doesn't exist sort.SearchStrings will return the index
+		// where the search item could be inserted in the slice, which will be
+		// equivalent to len(slice). Therefore, if the index returned is less
+		// than len(slice) we can infer the element was found.
+		if issueIndex < len(issues) {
+			// Overwrites the element we want to remove with the value of the
+			// last element, then remove the last element. Apparently this is
+			// faster than other methods for removing an element of a slice.
+			issues[issueIndex] = issues[len(issues)-1]
+			issues = issues[:len(issues)-1]
+			if len(issues) == 0 {
+				delete(stateMap, key)
+				metricState.WithLabelValues(key).Set(0)
+				log.Printf("INFO: %s was removed from maintenance.", key)
+			} else {
+				stateMap[key] = issues
+			}
+			mods++
+		}
+	}
+	return mods
 }
 
 // closeIssue removes any machines and sites from maintenance mode when the
@@ -156,43 +183,29 @@ func restoreState(r io.Reader, s *maintenanceState) error {
 func closeIssue(issueNumber string, s *maintenanceState) int {
 	var mods = 0
 	// Remove any machines from maintenance that were set by this issue.
-	for machine, issue := range s.Machines {
-		if issue == issueNumber {
-			delete(s.Machines, machine)
-			metricMachine.WithLabelValues(machine, issueNumber).Set(0)
-			log.Printf("INFO: Machine %s was removed from maintenance because issue was closed.", machine)
-			mods++
-		}
-	}
+	machineMods := removeIssue(s.Machines, metricMachine, issueNumber)
+	mods = mods + machineMods
 
 	// Remove any sites from maintenance that were set by this issue.
-	for site, issue := range s.Sites {
-		if issue == issueNumber {
-			delete(s.Sites, site)
-			metricSite.WithLabelValues(site, issueNumber).Set(0)
-			log.Printf("INFO: Site %s was removed from maintenance because issue was closed.", site)
-			mods++
-		}
-	}
+	siteMods := removeIssue(s.Sites, metricSite, issueNumber)
+	mods = mods + siteMods
 
 	return mods
 }
 
 // updateState modifies the maintenance state of a machine or site in the
 // in-memory map as well as updating the Prometheus metric.
-func updateState(stateMap map[string]string, mapKey string, metricState *prometheus.GaugeVec,
+func updateState(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
 	issueNumber string, action float64) {
 	mux.Lock()
 	defer mux.Unlock()
 
 	switch action {
 	case cLeaveMaintenance:
-		delete(stateMap, mapKey)
-		metricState.WithLabelValues(mapKey, issueNumber).Set(action)
-		log.Printf("INFO: Machine %s was removed from maintenance.", mapKey)
+		removeIssue(stateMap, metricState, issueNumber)
 	case cEnterMaintenance:
-		stateMap[mapKey] = issueNumber
-		metricState.WithLabelValues(mapKey, issueNumber).Set(action)
+		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
+		metricState.WithLabelValues(mapKey).Set(action)
 		log.Printf("INFO: %s was added to maintenance.", mapKey)
 	default:
 		log.Printf("WARNING: Unknown action type: %f", action)
