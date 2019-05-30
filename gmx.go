@@ -201,8 +201,8 @@ func updateState(stateMap map[string]string, mapKey string, metricState *prometh
 		metricError.WithLabelValues("duplicatemaintenance", "updateState").Add(1)
 	case cEnterMaintenance:
 		// Do not create a maintenance entry if one already exists for a site or machine.
-		for _, issue := range stateMap {
-			if issue == issueNumber {
+		for entity, _ := range stateMap {
+			if entity == mapKey {
 				log.Printf("ERROR: %s is already in maintenance mode.", mapKey)
 				metricError.WithLabelValues("duplicatemaintenance", "updateState").Add(1)
 				return
