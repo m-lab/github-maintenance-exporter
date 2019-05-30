@@ -148,30 +148,30 @@ func restoreState(r io.Reader, s *maintenanceState) error {
 	return nil
 }
 
-func removeIssue(stateMap map[string][]string, metricState *prometheus.GaugeVec,
+func removeIssue(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
 	issueNumber string) int {
 	var mods = 0
-	for key, issues := range stateMap {
-		issueIndex := sort.SearchStrings(issues, issueNumber)
-		// If an element doesn't exist sort.SearchStrings will return the index
-		// where the search item could be inserted in the slice, which will be
-		// equivalent to len(slice). Therefore, if the index returned is less
-		// than len(slice) we can infer the element was found.
-		if issueIndex < len(issues) {
-			// Overwrites the element we want to remove with the value of the
-			// last element, then remove the last element. Apparently this is
-			// faster than other methods for removing an element of a slice.
-			issues[issueIndex] = issues[len(issues)-1]
-			issues = issues[:len(issues)-1]
-			if len(issues) == 0 {
-				delete(stateMap, key)
-				metricState.WithLabelValues(key).Set(0)
-				log.Printf("INFO: %s was removed from maintenance.", key)
-			} else {
-				stateMap[key] = issues
-			}
-			mods++
+	mapElement := stateMap[mapKey]
+
+	issueIndex := sort.SearchStrings(mapElement, issueNumber)
+	// If an element doesn't exist sort.SearchStrings will return the index
+	// where the search item could be inserted in the slice, which will be
+	// equivalent to len(slice). Therefore, if the index returned is less
+	// than len(slice) we can infer the element was found.
+	if issueIndex < len(mapElement) {
+		// Overwrites the element we want to remove with the value of the
+		// last element, then remove the last element. Apparently this is
+		// faster than other methods for removing an element of a slice.
+		mapElement[issueIndex] = mapElement[len(mapElement)-1]
+		mapElement = mapElement[:len(mapElement)-1]
+		if len(mapElement) == 0 {
+			delete(stateMap, mapKey)
+			metricState.WithLabelValues(mapKey).Set(0)
+			log.Printf("INFO: %s was removed from maintenance.", mapKey)
+		} else {
+			stateMap[mapKey] = mapElement
 		}
+		mods++
 	}
 	return mods
 }
@@ -183,12 +183,22 @@ func removeIssue(stateMap map[string][]string, metricState *prometheus.GaugeVec,
 func closeIssue(issueNumber string, s *maintenanceState) int {
 	var mods = 0
 	// Remove any machines from maintenance that were set by this issue.
-	machineMods := removeIssue(s.Machines, metricMachine, issueNumber)
-	mods = mods + machineMods
+	for machine, issues := range s.Machines {
+		issueIndex := sort.SearchStrings(issues, issueNumber)
+		if issueIndex < len(issues) {
+			removeIssue(s.Machines, machine, metricMachine, issueNumber)
+			mods++
+		}
+	}
 
 	// Remove any sites from maintenance that were set by this issue.
-	siteMods := removeIssue(s.Sites, metricSite, issueNumber)
-	mods = mods + siteMods
+	for site, issues := range s.Sites {
+		issueIndex := sort.SearchStrings(issues, issueNumber)
+		if issueIndex < len(issues) {
+			removeIssue(s.Sites, site, metricSite, issueNumber)
+			mods++
+		}
+	}
 
 	return mods
 }
@@ -202,7 +212,7 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 
 	switch action {
 	case cLeaveMaintenance:
-		removeIssue(stateMap, metricState, issueNumber)
+		removeIssue(stateMap, mapKey, metricState, issueNumber)
 	case cEnterMaintenance:
 		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
 		metricState.WithLabelValues(mapKey).Set(action)
