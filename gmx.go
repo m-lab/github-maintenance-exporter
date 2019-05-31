@@ -29,7 +29,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"sort"
 	"strconv"
 	"sync"
 
@@ -148,20 +147,29 @@ func restoreState(r io.Reader, s *maintenanceState) error {
 	return nil
 }
 
+// Looks for a string a slice.
+func stringInSlice(s string, list []string) int {
+	for i, v := range list {
+		if v == s {
+			return i
+		}
+	}
+	return -1
+}
+
+// Removes a single issue from a site/machine. If the issue was the last one
+// associated with the site/machine, it will also remove the site/machine
+// from maintenance.
 func removeIssue(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
 	issueNumber string) int {
+	mux.Lock()
+	defer mux.Unlock()
+
 	var mods = 0
 	mapElement := stateMap[mapKey]
 
-	issueIndex := sort.SearchStrings(mapElement, issueNumber)
-	// If an element doesn't exist sort.SearchStrings will return the index
-	// where the search item could be inserted in the slice, which will be
-	// equivalent to len(slice). Therefore, if the index returned is less
-	// than len(slice) we can infer the element was found.
-	if issueIndex < len(mapElement) {
-		// Overwrites the element we want to remove with the value of the
-		// last element, then remove the last element. Apparently this is
-		// faster than other methods for removing an element of a slice.
+	issueIndex := stringInSlice(issueNumber, mapElement)
+	if issueIndex >= 0 {
 		mapElement[issueIndex] = mapElement[len(mapElement)-1]
 		mapElement = mapElement[:len(mapElement)-1]
 		if len(mapElement) == 0 {
@@ -184,8 +192,8 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 	var mods = 0
 	// Remove any machines from maintenance that were set by this issue.
 	for machine, issues := range s.Machines {
-		issueIndex := sort.SearchStrings(issues, issueNumber)
-		if issueIndex < len(issues) {
+		issueIndex := stringInSlice(issueNumber, issues)
+		if issueIndex >= 0 {
 			removeIssue(s.Machines, machine, metricMachine, issueNumber)
 			mods++
 		}
@@ -193,8 +201,8 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 
 	// Remove any sites from maintenance that were set by this issue.
 	for site, issues := range s.Sites {
-		issueIndex := sort.SearchStrings(issues, issueNumber)
-		if issueIndex < len(issues) {
+		issueIndex := stringInSlice(issueNumber, issues)
+		if issueIndex >= 0 {
 			removeIssue(s.Sites, site, metricSite, issueNumber)
 			mods++
 		}
@@ -207,16 +215,16 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 // in-memory map as well as updating the Prometheus metric.
 func updateState(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
 	issueNumber string, action float64) {
-	mux.Lock()
-	defer mux.Unlock()
 
 	switch action {
 	case cLeaveMaintenance:
 		removeIssue(stateMap, mapKey, metricState, issueNumber)
 	case cEnterMaintenance:
+		mux.Lock()
 		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
 		metricState.WithLabelValues(mapKey).Set(action)
 		log.Printf("INFO: %s was added to maintenance for issue #%s", mapKey, issueNumber)
+		mux.Unlock()
 	default:
 		log.Printf("WARNING: Unknown action type: %f", action)
 	}
