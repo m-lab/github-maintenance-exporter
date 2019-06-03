@@ -15,15 +15,15 @@ import (
 var savedState = `
 	{
 		"Machines": {
-			"mlab1.abc01.measurement-lab.org": "1",
-			"mlab2.xyz01.measurement-lab.org": "2",
-			"mlab3.def01.measurement-lab.org": "8"
+			"mlab1.abc01.measurement-lab.org": ["1"],
+			"mlab2.xyz01.measurement-lab.org": ["2"],
+			"mlab3.def01.measurement-lab.org": ["8"]
 		},
 		"Sites": {
-			"abc02": "8",
-			"def02": "8",
-			"uvw03": "4",
-			"xyz03": "5"
+			"abc02": ["8"],
+			"def02": ["8"],
+			"uvw03": ["4", "11"],
+			"xyz03": ["5"]
 
 		}
 	}
@@ -229,16 +229,46 @@ func TestReceiveHook(t *testing.T) {
 }
 
 func TestCloseIssue(t *testing.T) {
-	expectedMods := 3
 
-	r := strings.NewReader(savedState)
-	var s maintenanceState
-	restoreState(r, &s)
+	tests := []struct {
+		name              string
+		issue             string
+		expectedMods      int
+		closedMaintenance int
+	}{
+		{
+			name:              "one-issue-per-entity-closes-maintenance",
+			issue:             "8",
+			expectedMods:      3,
+			closedMaintenance: 3,
+		},
+		{
+			name:              "multiple-issues-per-entity-does-not-close-maintenance",
+			issue:             "4",
+			expectedMods:      1,
+			closedMaintenance: 0,
+		},
+	}
 
-	mods := closeIssue("8", &s)
+	for _, test := range tests {
+		r := strings.NewReader(savedState)
+		var s maintenanceState
+		restoreState(r, &s)
 
-	if mods != expectedMods {
-		t.Errorf("closeIssue(): Expected %d state modifications; got %d", expectedMods, mods)
+		totalEntitiesBefore := len(s.Machines) + len(s.Sites)
+		mods := closeIssue(test.issue, &s)
+		totalEntitiesAfter := len(s.Machines) + len(s.Sites)
+		closedMaintenance := totalEntitiesBefore - totalEntitiesAfter
+
+		if mods != test.expectedMods {
+			t.Errorf("closeIssue(): Expected %d state modifications; got %d",
+				test.expectedMods, mods)
+		}
+
+		if closedMaintenance != test.closedMaintenance {
+			t.Errorf("closeIssue(): Expected %d closed maintenances; got %d",
+				test.closedMaintenance, closedMaintenance)
+		}
 	}
 }
 
