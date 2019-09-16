@@ -44,13 +44,23 @@ var (
 	fListenAddress    string // Interface and port to listen on.
 	fStateFilePath    string // Filesystem path to write the maintenance state file.
 	fGitHubSecretPath string // Filesystem path to file which contains the shared Github secret.
+	fProject          string // GCP project where this instance is running.
 
 	githubSecret []byte // The symetric secret used to validate that the webhook actually came from Github.
 
 	mux sync.Mutex
 
-	machineRegExp = regexp.MustCompile(`\/machine (mlab[1-4]{1}\.[a-z]{3}[0-9c]{2})\s?(del)?`)
-	siteRegExp    = regexp.MustCompile(`\/site ([a-z]{3}[0-9c]{2})\s?(del)?`)
+	machineRegExps = map[string]*regexp.Regexp{
+		"mlab-sandbox": regexp.MustCompile(`\/machine\s+(mlab[1-4]\.[a-z]{3}[0-9]t)\s+(del)?`),
+		"mlab-staging": regexp.MustCompile(`\/machine\s+(mlab[4]\.[a-z]{3}[0-9c]{2})\s+(del)?`),
+		"mlab-oti":     regexp.MustCompile(`\/machine\s+(mlab[1-3]\.[a-z]{3}[0-9c]{2})\s+(del)?`),
+	}
+
+	siteRegExps = map[string]*regexp.Regexp{
+		"mlab-sandbox": regexp.MustCompile(`\/site\s+([a-z]{3}[0-9]t)\s+(del)?`),
+		"mlab-staging": regexp.MustCompile(`\/site\s+([a-z]{3}[0-9c]{2})\s+(del)?`),
+		"mlab-oti":     regexp.MustCompile(`\/site\s+([a-z]{3}[0-9c]{2})\s+(del)?`),
+	}
 
 	// Prometheus metric for exposing any errors that the exporter encounters.
 	metricError = prometheus.NewCounterVec(
@@ -219,6 +229,7 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 	switch action {
 	case cLeaveMaintenance:
 		removeIssue(stateMap, mapKey, metricState, issueNumber)
+		log.Printf("INFO: %s was removed from maintenance for issue #%s", mapKey, issueNumber)
 	case cEnterMaintenance:
 		mux.Lock()
 		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
@@ -235,9 +246,9 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 // added to or removed from maintenance mode. If any matches are found, it
 // updates the state for the item. The return value is the number of
 // modifications that were made to the machine and site maintenance state.
-func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
+func parseMessage(msg string, issueNumber string, s *maintenanceState, project string) int {
 	var mods = 0
-	machineMatches := machineRegExp.FindAllStringSubmatch(msg, -1)
+	machineMatches := machineRegExps[project].FindAllStringSubmatch(msg, -1)
 	if len(machineMatches) > 0 {
 		for _, machine := range machineMatches {
 			log.Printf("INFO: Flag found for machine: %s", machine[1])
@@ -252,7 +263,7 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState) int {
 		}
 	}
 
-	siteMatches := siteRegExp.FindAllStringSubmatch(msg, -1)
+	siteMatches := siteRegExps[project].FindAllStringSubmatch(msg, -1)
 	if len(siteMatches) > 0 {
 		for _, site := range siteMatches {
 			log.Printf("INFO: Flag found for site: %s", site[1])
@@ -314,7 +325,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 			log.Printf("INFO: Issue #%s was %s.", issueNumber, eventAction)
 			mods = closeIssue(issueNumber, &state)
 		case "opened", "edited":
-			mods = parseMessage(event.Issue.GetBody(), issueNumber, &state)
+			mods = parseMessage(event.Issue.GetBody(), issueNumber, &state, fProject)
 		default:
 			log.Printf("INFO: Unsupported IssueEvent action: %s.", eventAction)
 			status = http.StatusNotImplemented
@@ -324,7 +335,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
 		issueState := event.Issue.GetState()
 		if issueState == "open" {
-			mods = parseMessage(event.Comment.GetBody(), issueNumber, &state)
+			mods = parseMessage(event.Comment.GetBody(), issueNumber, &state, fProject)
 		} else {
 			log.Printf("INFO: Ignoring IssueComment event on closed issue #%s.", issueNumber)
 			status = http.StatusExpectationFailed
@@ -382,6 +393,8 @@ func init() {
 		"Filesystem path for the state file.")
 	flag.StringVar(&fGitHubSecretPath, "storage.github-secret", "",
 		"Filesystem path of file containing the shared Github webhook secret.")
+	flag.StringVar(&fProject, "project", "mlab-oti",
+		"GCP project where this instance is running.")
 	prometheus.MustRegister(metricError)
 	prometheus.MustRegister(metricMachine)
 	prometheus.MustRegister(metricSite)

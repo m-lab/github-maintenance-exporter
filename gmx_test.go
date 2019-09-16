@@ -24,7 +24,6 @@ var savedState = `
 			"def02": ["8"],
 			"uvw03": ["4", "11"],
 			"xyz03": ["5"]
-
 		}
 	}
 `
@@ -274,43 +273,79 @@ func TestCloseIssue(t *testing.T) {
 
 func TestParseMessage(t *testing.T) {
 	r := strings.NewReader(savedState)
-	var s maintenanceState
+	var s = state
 	restoreState(r, &s)
 
 	tests := []struct {
 		name         string
 		msg          string
+		project      string
 		expectedMods int
 	}{
 		{
 			name:         "add-1-machine-to-maintenance",
 			msg:          `/machine mlab1.abc01 is in maintenance mode.`,
+			project:      `mlab-oti`,
 			expectedMods: 1,
 		},
 		{
 			name:         "add-2-sites-to-maintenance",
 			msg:          `Putting /site abc01 and /site xyz02 into maintenance mode.`,
+			project:      `mlab-oti`,
 			expectedMods: 2,
 		},
 		{
 			name:         "add-1-sites-and-1-machine-to-maintenance",
 			msg:          `Putting /site abc01 and /machine mlab1.xyz02 into maintenance mode.`,
+			project:      `mlab-oti`,
 			expectedMods: 2,
 		},
 		{
 			name:         "remove-1-machine-and-1-site-from-maintenance",
 			msg:          `Removing /machine mlab2.xyz01 del and /site uvw02 del from maintenance.`,
+			project:      `mlab-oti`,
 			expectedMods: 2,
 		},
 		{
 			name:         "3-malformed-flags",
 			msg:          `Add /machine and /site vw02 to maintenance. Removing /site lol del.`,
+			project:      `mlab-oti`,
 			expectedMods: 0,
+		},
+		{
+			name:         "1-production-machine-1-staging-machine-flag",
+			msg:          `Add /machine mlab2.ghi01 and /machine mlab4.ghi01 to maintenance.`,
+			project:      `mlab-oti`,
+			expectedMods: 1,
+		},
+		{
+			name:         "1-sandbox-machine-1-staging-machine-flag",
+			msg:          `Add /machine mlab3.hij0t and /machine mlab4.qrs01 to maintenance.`,
+			project:      `mlab-oti`,
+			expectedMods: 0,
+		},
+		{
+			name:         "1-sandbox-machine-flag",
+			msg:          `Add /machine mlab1.abc0t to maintenance.`,
+			project:      `mlab-sandbox`,
+			expectedMods: 1,
+		},
+		{
+			name:         "2-staging-machine-flags",
+			msg:          `Add /machine mlab4.abc03 and /machine mlab4.wxy01 to maintenance.`,
+			project:      `mlab-staging`,
+			expectedMods: 2,
+		},
+		{
+			name:         "1-sandbox-site-flag",
+			msg:          `Add /site nop0t to maintenance.`,
+			project:      `mlab-sandbox`,
+			expectedMods: 1,
 		},
 	}
 
 	for _, test := range tests {
-		mods := parseMessage(test.msg, "99", &s)
+		mods := parseMessage(test.msg, "99", &s, test.project)
 		if mods != test.expectedMods {
 			t.Errorf("parseMessage(): %s: expected %d state modifications; got %d",
 				test.name, test.expectedMods, mods)
