@@ -30,6 +30,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/google/go-github/github"
@@ -81,6 +82,7 @@ var (
 		},
 		[]string{
 			"machine",
+			"node",
 		},
 	)
 	// Prometheus metric for exposing site maintenance status.
@@ -145,7 +147,7 @@ func restoreState(r io.Reader, s *maintenanceState) error {
 
 	// Restore machine maintenance state.
 	for machine := range s.Machines {
-		metricMachine.WithLabelValues(machine).Set(cEnterMaintenance)
+		metricMachine.WithLabelValues(machine, machine).Set(cEnterMaintenance)
 	}
 
 	// Restore site maintenance state.
@@ -184,7 +186,13 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 		mapElement = mapElement[:len(mapElement)-1]
 		if len(mapElement) == 0 {
 			delete(stateMap, mapKey)
-			metricState.WithLabelValues(mapKey).Set(0)
+			// If this is a machine state, then we need to pass mapKey twice, once for the
+			// "machine" label and once for the "node" label.
+			if strings.HasPrefix(mapKey, "mlab") {
+				metricState.WithLabelValues(mapKey, mapKey).Set(0)
+			} else {
+				metricState.WithLabelValues(mapKey).Set(0)
+			}
 		} else {
 			stateMap[mapKey] = mapElement
 		}
@@ -229,11 +237,16 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 	switch action {
 	case cLeaveMaintenance:
 		removeIssue(stateMap, mapKey, metricState, issueNumber)
-		log.Printf("INFO: %s was removed from maintenance for issue #%s", mapKey, issueNumber)
 	case cEnterMaintenance:
 		mux.Lock()
 		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
-		metricState.WithLabelValues(mapKey).Set(action)
+		// If this is a machine state, then we need to pass mapKey twice, once for the
+		// "machine" label and once for the "node" label.
+		if strings.HasPrefix(mapKey, "mlab") {
+			metricState.WithLabelValues(mapKey, mapKey).Set(action)
+		} else {
+			metricState.WithLabelValues(mapKey).Set(action)
+		}
 		log.Printf("INFO: %s was added to maintenance for issue #%s", mapKey, issueNumber)
 		mux.Unlock()
 	default:
