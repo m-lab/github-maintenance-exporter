@@ -238,6 +238,12 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 	case cLeaveMaintenance:
 		removeIssue(stateMap, mapKey, metricState, issueNumber)
 	case cEnterMaintenance:
+		// Don't enter maintenance more than once for a given issue.
+		issueIndex := stringInSlice(issueNumber, stateMap[mapKey])
+		if issueIndex >= 0 {
+			log.Printf("INFO: %s is already in maintenance for issue #%s", mapKey, issueNumber)
+			return
+		}
 		mux.Lock()
 		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
 		// If this is a machine state, then we need to pass mapKey twice, once for the
@@ -281,10 +287,10 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState, project s
 		for _, site := range siteMatches {
 			log.Printf("INFO: Flag found for site: %s", site[1])
 			if site[2] == "del" {
-				updateState(s.Sites, site[1], metricSite, issueNumber, 0)
+				updateState(s.Sites, site[1], metricSite, issueNumber, cLeaveMaintenance)
 				mods++
 			} else {
-				updateState(s.Sites, site[1], metricSite, issueNumber, 1)
+				updateState(s.Sites, site[1], metricSite, issueNumber, cEnterMaintenance)
 				mods++
 			}
 		}
