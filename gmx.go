@@ -207,26 +207,32 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 // number of modifications that were made to the machine and site maintenance
 // state.
 func closeIssue(issueNumber string, s *maintenanceState) int {
-	var mods = 0
-	// Remove any machines from maintenance that were set by this issue.
-	for machine, issues := range s.Machines {
-		issueIndex := stringInSlice(issueNumber, issues)
-		if issueIndex >= 0 {
-			removeIssue(s.Machines, machine, metricMachine, issueNumber)
-			mods++
-		}
-	}
-
+	var total_mods = 0
 	// Remove any sites from maintenance that were set by this issue.
 	for site, issues := range s.Sites {
 		issueIndex := stringInSlice(issueNumber, issues)
 		if issueIndex >= 0 {
-			removeIssue(s.Sites, site, metricSite, issueNumber)
-			mods++
+			mods := removeIssue(s.Sites, site, metricSite, issueNumber)
+			total_mods = total_mods + mods
+			// Since site is leaving maintenance, remove all associated machine maintenances.
+			for _, num := range []string{"1", "2", "3", "4"} {
+				machine := "mlab" + num + "." + site + ".measurement-lab.org"
+				mods := removeIssue(s.Machines, machine, metricMachine, issueNumber)
+				total_mods = total_mods + mods
+			}
 		}
 	}
 
-	return mods
+	// Remove any machines from maintenance that were set by this issue.
+	for machine, issues := range s.Machines {
+		issueIndex := stringInSlice(issueNumber, issues)
+		if issueIndex >= 0 {
+			mods := removeIssue(s.Machines, machine, metricMachine, issueNumber)
+			total_mods = total_mods + mods
+		}
+	}
+
+	return total_mods
 }
 
 // updateState modifies the maintenance state of a machine or site in the
@@ -267,6 +273,32 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 // modifications that were made to the machine and site maintenance state.
 func parseMessage(msg string, issueNumber string, s *maintenanceState, project string) int {
 	var mods = 0
+	siteMatches := siteRegExps[project].FindAllStringSubmatch(msg, -1)
+	if len(siteMatches) > 0 {
+		for _, site := range siteMatches {
+			log.Printf("INFO: Flag found for site: %s", site[1])
+			if site[2] == "del" {
+				updateState(s.Sites, site[1], metricSite, issueNumber, cLeaveMaintenance)
+				mods++
+				// Since site is leaving maintenance, remove all associated machine maintenances.
+				for _, num := range []string{"1", "2", "3", "4"} {
+					machine := "mlab" + num + "." + site[1] + ".measurement-lab.org"
+					updateState(s.Machines, machine, metricMachine, issueNumber, cLeaveMaintenance)
+					mods++
+				}
+			} else {
+				updateState(s.Sites, site[1], metricSite, issueNumber, cEnterMaintenance)
+				mods++
+				// Since site is entering maintenance, add all associated machine maintenances.
+				for _, num := range []string{"1", "2", "3", "4"} {
+					machine := "mlab" + num + "." + site[1] + ".measurement-lab.org"
+					updateState(s.Machines, machine, metricMachine, issueNumber, cEnterMaintenance)
+					mods++
+				}
+			}
+		}
+	}
+
 	machineMatches := machineRegExps[project].FindAllStringSubmatch(msg, -1)
 	if len(machineMatches) > 0 {
 		for _, machine := range machineMatches {
@@ -277,20 +309,6 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState, project s
 				mods++
 			} else {
 				updateState(s.Machines, label, metricMachine, issueNumber, cEnterMaintenance)
-				mods++
-			}
-		}
-	}
-
-	siteMatches := siteRegExps[project].FindAllStringSubmatch(msg, -1)
-	if len(siteMatches) > 0 {
-		for _, site := range siteMatches {
-			log.Printf("INFO: Flag found for site: %s", site[1])
-			if site[2] == "del" {
-				updateState(s.Sites, site[1], metricSite, issueNumber, cLeaveMaintenance)
-				mods++
-			} else {
-				updateState(s.Sites, site[1], metricSite, issueNumber, cEnterMaintenance)
 				mods++
 			}
 		}
