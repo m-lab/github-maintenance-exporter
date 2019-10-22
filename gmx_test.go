@@ -16,14 +16,19 @@ var savedState = `
 	{
 		"Machines": {
 			"mlab1.abc01.measurement-lab.org": ["1"],
-			"mlab2.xyz01.measurement-lab.org": ["2"],
-			"mlab3.def01.measurement-lab.org": ["8"]
+			"mlab1.abc02.measurement-lab.org": ["8"],
+			"mlab2.abc02.measurement-lab.org": ["8"],
+			"mlab3.abc02.measurement-lab.org": ["8"],
+			"mlab4.abc02.measurement-lab.org": ["8"],
+			"mlab3.def01.measurement-lab.org": ["5"],
+			"mlab1.uvw03.measurement-lab.org": ["4", "11"],
+			"mlab2.uvw03.measurement-lab.org": ["4", "11"],
+			"mlab3.uvw03.measurement-lab.org": ["4", "11"],
+			"mlab4.uvw03.measurement-lab.org": ["4", "11"]
 		},
 		"Sites": {
 			"abc02": ["8"],
-			"def02": ["8"],
-			"uvw03": ["4", "11"],
-			"xyz03": ["5"]
+			"uvw03": ["4", "11"]
 		}
 	}
 `
@@ -62,8 +67,8 @@ func TestRootHandler(t *testing.T) {
 }
 
 func TestRestoreState(t *testing.T) {
-	expectedMachines := 3
-	expectedSites := 4
+	expectedMachines := 10
+	expectedSites := 2
 
 	r := strings.NewReader(savedState)
 	var s maintenanceState
@@ -122,7 +127,7 @@ func TestReceiveHook(t *testing.T) {
 			payload:        []byte(`{"fake":"data"}`),
 		},
 		{
-			name:           "issues-hook-good-request-2-mods",
+			name:           "issues-hook-good-request-6-mods",
 			secretKey:      githubSecret,
 			eventType:      "issues",
 			expectedStatus: http.StatusOK,
@@ -137,7 +142,7 @@ func TestReceiveHook(t *testing.T) {
 			`),
 		},
 		{
-			name:           "issues-hook-good-request-close-issue",
+			name:           "issues-hook-good-request-closeuvw03issue",
 			secretKey:      githubSecret,
 			eventType:      "issues",
 			expectedStatus: http.StatusOK,
@@ -238,13 +243,13 @@ func TestCloseIssue(t *testing.T) {
 		{
 			name:              "one-issue-per-entity-closes-maintenance",
 			issue:             "8",
-			expectedMods:      3,
-			closedMaintenance: 3,
+			expectedMods:      5,
+			closedMaintenance: 5,
 		},
 		{
 			name:              "multiple-issues-per-entity-does-not-close-maintenance",
 			issue:             "4",
-			expectedMods:      1,
+			expectedMods:      5,
 			closedMaintenance: 0,
 		},
 	}
@@ -292,19 +297,19 @@ func TestParseMessage(t *testing.T) {
 			name:         "add-2-sites-to-maintenance",
 			msg:          `Putting /site abc01 and /site xyz02 into maintenance mode.`,
 			project:      `mlab-oti`,
-			expectedMods: 2,
+			expectedMods: 10,
 		},
 		{
 			name:         "add-1-sites-and-1-machine-to-maintenance",
 			msg:          `Putting /site abc01 and /machine mlab1.xyz02 into maintenance mode.`,
 			project:      `mlab-oti`,
-			expectedMods: 2,
+			expectedMods: 6,
 		},
 		{
 			name:         "remove-1-machine-and-1-site-from-maintenance",
 			msg:          `Removing /machine mlab2.xyz01 del and /site uvw02 del from maintenance.`,
 			project:      `mlab-oti`,
-			expectedMods: 2,
+			expectedMods: 6,
 		},
 		{
 			name:         "3-malformed-flags",
@@ -340,7 +345,7 @@ func TestParseMessage(t *testing.T) {
 			name:         "1-sandbox-site-flag",
 			msg:          `Add /site nop0t to maintenance.`,
 			project:      `mlab-sandbox`,
-			expectedMods: 1,
+			expectedMods: 5,
 		},
 	}
 
