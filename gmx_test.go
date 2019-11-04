@@ -210,6 +210,22 @@ func TestReceiveHook(t *testing.T) {
 				}
 			`),
 		},
+		{
+			name:           "issue-comment-hook-flag-at-end-of-input",
+			secretKey:      githubSecret,
+			eventType:      "issue_comment",
+			expectedStatus: http.StatusOK,
+			payload: []byte(`
+				{
+					"action": "edited",
+					"issue": {
+						"number": 1,
+						"body": "Put into maintenance /machine mlab1.abc01",
+						"state": "open"
+					}
+				}
+			`),
+		},
 	}
 
 	for _, test := range tests {
