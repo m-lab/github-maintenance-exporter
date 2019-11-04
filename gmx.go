@@ -321,8 +321,8 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState, project s
 // simply printing the name of the utility and returning a 200 status. This
 // could be used by, for example, kubernetes aliveness checks.
 func rootHandler(resp http.ResponseWriter, req *http.Request) {
-	fmt.Fprintf(resp, "GitHub Maintenance Exporter")
 	resp.WriteHeader(http.StatusOK)
+	fmt.Fprintf(resp, "GitHub Maintenance Exporter")
 	return
 }
 
