@@ -207,18 +207,18 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 // number of modifications that were made to the machine and site maintenance
 // state.
 func closeIssue(issueNumber string, s *maintenanceState) int {
-	var total_mods = 0
+	var totalMods = 0
 	// Remove any sites from maintenance that were set by this issue.
 	for site, issues := range s.Sites {
 		issueIndex := stringInSlice(issueNumber, issues)
 		if issueIndex >= 0 {
 			mods := removeIssue(s.Sites, site, metricSite, issueNumber)
-			total_mods = total_mods + mods
+			totalMods = totalMods + mods
 			// Since site is leaving maintenance, remove all associated machine maintenances.
 			for _, num := range []string{"1", "2", "3", "4"} {
 				machine := "mlab" + num + "." + site + ".measurement-lab.org"
 				mods := removeIssue(s.Machines, machine, metricMachine, issueNumber)
-				total_mods = total_mods + mods
+				totalMods = totalMods + mods
 			}
 		}
 	}
@@ -228,11 +228,11 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 		issueIndex := stringInSlice(issueNumber, issues)
 		if issueIndex >= 0 {
 			mods := removeIssue(s.Machines, machine, metricMachine, issueNumber)
-			total_mods = total_mods + mods
+			totalMods = totalMods + mods
 		}
 	}
 
-	return total_mods
+	return totalMods
 }
 
 // updateState modifies the maintenance state of a machine or site in the
