@@ -52,15 +52,15 @@ var (
 	mux sync.Mutex
 
 	machineRegExps = map[string]*regexp.Regexp{
-		"mlab-sandbox": regexp.MustCompile(`\/machine\s+(mlab[1-4]\.[a-z]{3}[0-9]t)\s+(del)?`),
-		"mlab-staging": regexp.MustCompile(`\/machine\s+(mlab[4]\.[a-z]{3}[0-9c]{2})\s+(del)?`),
-		"mlab-oti":     regexp.MustCompile(`\/machine\s+(mlab[1-3]\.[a-z]{3}[0-9c]{2})\s+(del)?`),
+		"mlab-sandbox": regexp.MustCompile(`\/machine\s+(mlab[1-4]\.[a-z]{3}[0-9]t)(\s+del)?`),
+		"mlab-staging": regexp.MustCompile(`\/machine\s+(mlab[4]\.[a-z]{3}[0-9c]{2})(\s+del)?`),
+		"mlab-oti":     regexp.MustCompile(`\/machine\s+(mlab[1-3]\.[a-z]{3}[0-9c]{2})(\s+del)?`),
 	}
 
 	siteRegExps = map[string]*regexp.Regexp{
-		"mlab-sandbox": regexp.MustCompile(`\/site\s+([a-z]{3}[0-9]t)\s+(del)?`),
-		"mlab-staging": regexp.MustCompile(`\/site\s+([a-z]{3}[0-9c]{2})\s+(del)?`),
-		"mlab-oti":     regexp.MustCompile(`\/site\s+([a-z]{3}[0-9c]{2})\s+(del)?`),
+		"mlab-sandbox": regexp.MustCompile(`\/site\s+([a-z]{3}[0-9]t)(\s+del)?`),
+		"mlab-staging": regexp.MustCompile(`\/site\s+([a-z]{3}[0-9c]{2})(\s+del)?`),
+		"mlab-oti":     regexp.MustCompile(`\/site\s+([a-z]{3}[0-9c]{2})(\s+del)?`),
 	}
 
 	// Prometheus metric for exposing any errors that the exporter encounters.
@@ -207,18 +207,18 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 // number of modifications that were made to the machine and site maintenance
 // state.
 func closeIssue(issueNumber string, s *maintenanceState) int {
-	var total_mods = 0
+	var totalMods = 0
 	// Remove any sites from maintenance that were set by this issue.
 	for site, issues := range s.Sites {
 		issueIndex := stringInSlice(issueNumber, issues)
 		if issueIndex >= 0 {
 			mods := removeIssue(s.Sites, site, metricSite, issueNumber)
-			total_mods = total_mods + mods
+			totalMods = totalMods + mods
 			// Since site is leaving maintenance, remove all associated machine maintenances.
 			for _, num := range []string{"1", "2", "3", "4"} {
 				machine := "mlab" + num + "." + site + ".measurement-lab.org"
 				mods := removeIssue(s.Machines, machine, metricMachine, issueNumber)
-				total_mods = total_mods + mods
+				totalMods = totalMods + mods
 			}
 		}
 	}
@@ -228,11 +228,11 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 		issueIndex := stringInSlice(issueNumber, issues)
 		if issueIndex >= 0 {
 			mods := removeIssue(s.Machines, machine, metricMachine, issueNumber)
-			total_mods = total_mods + mods
+			totalMods = totalMods + mods
 		}
 	}
 
-	return total_mods
+	return totalMods
 }
 
 // updateState modifies the maintenance state of a machine or site in the
@@ -277,7 +277,7 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState, project s
 	if len(siteMatches) > 0 {
 		for _, site := range siteMatches {
 			log.Printf("INFO: Flag found for site: %s", site[1])
-			if site[2] == "del" {
+			if strings.TrimSpace(site[2]) == "del" {
 				updateState(s.Sites, site[1], metricSite, issueNumber, cLeaveMaintenance)
 				mods++
 				// Since site is leaving maintenance, remove all associated machine maintenances.
@@ -304,7 +304,7 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState, project s
 		for _, machine := range machineMatches {
 			log.Printf("INFO: Flag found for machine: %s", machine[1])
 			label := machine[1] + ".measurement-lab.org"
-			if machine[2] == "del" {
+			if strings.TrimSpace(machine[2]) == "del" {
 				updateState(s.Machines, label, metricMachine, issueNumber, cLeaveMaintenance)
 				mods++
 			} else {
@@ -321,8 +321,8 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState, project s
 // simply printing the name of the utility and returning a 200 status. This
 // could be used by, for example, kubernetes aliveness checks.
 func rootHandler(resp http.ResponseWriter, req *http.Request) {
-	fmt.Fprintf(resp, "GitHub Maintenance Exporter")
 	resp.WriteHeader(http.StatusOK)
+	fmt.Fprintf(resp, "GitHub Maintenance Exporter")
 	return
 }
 
