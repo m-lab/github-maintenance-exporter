@@ -71,7 +71,7 @@ func TestRootHandler(t *testing.T) {
 }
 
 func TestReceiveHook(t *testing.T) {
-	state = maintenancestate.New("")
+	state, _ = maintenancestate.New("/does/not/exist/and/thats/okay")
 	githubSecret = []byte("goodsecret")
 
 	tests := []struct {
@@ -241,7 +241,8 @@ func TestCloseIssue(t *testing.T) {
 	defer os.Remove(fname)
 	rtx.Must(ioutil.WriteFile(fname, []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s := maintenancestate.New(fname)
+	s, err := maintenancestate.New(fname)
+	rtx.Must(err, "Could not read from tmpfile")
 
 	tests := []struct {
 		name              string
@@ -290,8 +291,8 @@ func TestParseMessage(t *testing.T) {
 	defer os.Remove(fname)
 	rtx.Must(ioutil.WriteFile(fname, []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s := maintenancestate.New(fname)
-	rtx.Must(s.Restore(), "Could not restore state")
+	s, err := maintenancestate.New(fname)
+	rtx.Must(err, "Could not restore state")
 
 	tests := []struct {
 		name         string
