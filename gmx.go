@@ -34,7 +34,9 @@ import (
 	"sync"
 
 	"github.com/google/go-github/github"
+	"github.com/m-lab/go/rtx"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -42,10 +44,10 @@ const cEnterMaintenance float64 = 1
 const cLeaveMaintenance float64 = 0
 
 var (
-	fListenAddress    string // Interface and port to listen on.
-	fStateFilePath    string // Filesystem path to write the maintenance state file.
-	fGitHubSecretPath string // Filesystem path to file which contains the shared Github secret.
-	fProject          string // GCP project where this instance is running.
+	fListenAddress    = flag.String("web.listen-address", ":9999", "Address to listen on for telemetry.")
+	fStateFilePath    = flag.String("storage.state-file", "/tmp/gmx-state", "Filesystem path for the state file.")
+	fGitHubSecretPath = flag.String("storage.github-secret", "", "Filesystem path of file containing the shared Github webhook secret.")
+	fProject          = flag.String("project", "mlab-oti", "GCP project where this instance is running.")
 
 	githubSecret []byte // The symetric secret used to validate that the webhook actually came from Github.
 
@@ -64,7 +66,7 @@ var (
 	}
 
 	// Prometheus metric for exposing any errors that the exporter encounters.
-	metricError = prometheus.NewCounterVec(
+	metricError = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gmx_error_count",
 			Help: "Count of errors.",
@@ -75,7 +77,7 @@ var (
 		},
 	)
 	// Prometheus metric for exposing machine maintenance status.
-	metricMachine = prometheus.NewGaugeVec(
+	metricMachine = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "gmx_machine_maintenance",
 			Help: "Whether a machine is in maitenance mode or not.",
@@ -86,7 +88,7 @@ var (
 		},
 	)
 	// Prometheus metric for exposing site maintenance status.
-	metricSite = prometheus.NewGaugeVec(
+	metricSite = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "gmx_site_maintenance",
 			Help: "Whether a site is in maintenance mode or not.",
@@ -119,12 +121,12 @@ func writeState(w io.Writer, s *maintenanceState) error {
 
 	_, err = w.Write(data)
 	if err != nil {
-		log.Printf("ERROR: Failed to write state to %s: %s", fStateFilePath, err)
+		log.Printf("ERROR: Failed to write state to %s: %s", *fStateFilePath, err)
 		metricError.WithLabelValues("writefile", "writeState").Add(1)
 		return err
 	}
 
-	log.Printf("INFO: Successfully wrote state to %s.", fStateFilePath)
+	log.Printf("INFO: Successfully wrote state to %s.", *fStateFilePath)
 	return nil
 }
 
@@ -133,7 +135,7 @@ func writeState(w io.Writer, s *maintenanceState) error {
 func restoreState(r io.Reader, s *maintenanceState) error {
 	data, err := ioutil.ReadAll(r)
 	if err != nil {
-		log.Printf("ERROR: Failed to read state data from %s: %s", fStateFilePath, err)
+		log.Printf("ERROR: Failed to read state data from %s: %s", *fStateFilePath, err)
 		metricError.WithLabelValues("readfile", "restoreState").Inc()
 		return err
 	}
@@ -155,7 +157,7 @@ func restoreState(r io.Reader, s *maintenanceState) error {
 		metricSite.WithLabelValues(site).Set(cEnterMaintenance)
 	}
 
-	log.Printf("INFO: Successfully restored %s from disk.", fStateFilePath)
+	log.Printf("INFO: Successfully restored %s from disk.", *fStateFilePath)
 	return nil
 }
 
@@ -362,7 +364,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 			log.Printf("INFO: Issue #%s was %s.", issueNumber, eventAction)
 			mods = closeIssue(issueNumber, &state)
 		case "opened", "edited":
-			mods = parseMessage(event.Issue.GetBody(), issueNumber, &state, fProject)
+			mods = parseMessage(event.Issue.GetBody(), issueNumber, &state, *fProject)
 		default:
 			log.Printf("INFO: Unsupported IssueEvent action: %s.", eventAction)
 			status = http.StatusNotImplemented
@@ -372,7 +374,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
 		issueState := event.Issue.GetState()
 		if issueState == "open" {
-			mods = parseMessage(event.Comment.GetBody(), issueNumber, &state, fProject)
+			mods = parseMessage(event.Comment.GetBody(), issueNumber, &state, *fProject)
 		} else {
 			log.Printf("INFO: Ignoring IssueComment event on closed issue #%s.", issueNumber)
 			status = http.StatusExpectationFailed
@@ -402,16 +404,16 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		mux.Lock()
 		defer mux.Unlock()
 
-		stateFile, err := os.Create(fStateFilePath)
+		stateFile, err := os.Create(*fStateFilePath)
 		if err != nil {
-			log.Printf("ERROR: Failed to create state file %s: %s", fStateFilePath, err)
+			log.Printf("ERROR: Failed to create state file %s: %s", *fStateFilePath, err)
 			metricError.WithLabelValues("createfile", "writeState").Add(1)
 			return
 		}
 		defer stateFile.Close()
 		err = writeState(stateFile, &state)
 		if err != nil {
-			log.Printf("ERROR: failed to write state file %s: %s", fStateFilePath, err)
+			log.Printf("ERROR: failed to write state file %s: %s", *fStateFilePath, err)
 			metricError.WithLabelValues("writefile", "receiveHook").Add(1)
 			return
 		}
@@ -421,64 +423,44 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	return
 }
 
-// init initializes the Prometheus metrics and drops any passed flags into
-// global variables.
-func init() {
-	flag.StringVar(&fListenAddress, "web.listen-address", ":9999",
-		"Address to listen on for telemetry.")
-	flag.StringVar(&fStateFilePath, "storage.state-file", "/tmp/gmx-state",
-		"Filesystem path for the state file.")
-	flag.StringVar(&fGitHubSecretPath, "storage.github-secret", "",
-		"Filesystem path of file containing the shared Github webhook secret.")
-	flag.StringVar(&fProject, "project", "mlab-oti",
-		"GCP project where this instance is running.")
-	prometheus.MustRegister(metricError)
-	prometheus.MustRegister(metricMachine)
-	prometheus.MustRegister(metricSite)
+// MustReadGithubSecret reads the GitHub shared webhook secret from a file (if a
+// filename is provided) or retrieves it from the environment. It exits with a
+// fatal error if the secret is not found or is bad for any reason.
+func MustReadGithubSecret(filename string) []byte {
+	var secret []byte
+
+	// Read it from a file or the environment.
+	if filename != "" {
+		var err error
+		secret, err = ioutil.ReadFile(filename)
+		rtx.Must(err, "ERROR: Could not read file %s", filename)
+	} else {
+		secret = []byte(os.Getenv("GITHUB_WEBHOOK_SECRET"))
+	}
+
+	secretTrimmed := bytes.TrimSpace(secret)
+	if len(secretTrimmed) == 0 {
+		log.Fatal("ERROR: Github secret is empty.")
+	}
+	return secretTrimmed
 }
 
 func main() {
 	flag.Parse()
 
-	stateFile, err := os.Open(fStateFilePath)
+	stateFile, err := os.Open(*fStateFilePath)
 	if err != nil {
-		log.Printf("WARNING: Failed to open state file %s: %s", fStateFilePath, err)
+		log.Printf("WARNING: Failed to open state file %s: %s", *fStateFilePath, err)
 		metricError.WithLabelValues("openfile", "main").Add(1)
 	} else {
 		restoreState(stateFile, &state)
 	}
 	stateFile.Close()
 
-	// If provided, read the GitHub shared webhook secret from a file, else expect to
-	// find it in the environment.
-	if fGitHubSecretPath != "" {
-		secretFile, err := os.Open(fGitHubSecretPath)
-		if err != nil {
-			log.Printf("ERROR: Failed to open secret file %s: %s", fGitHubSecretPath, err)
-			os.Exit(1)
-		}
-		secret, err := ioutil.ReadAll(secretFile)
-		if err != nil {
-			log.Printf("ERROR: Failed to read secret file %s: %s", fGitHubSecretPath, err)
-			os.Exit(1)
-		}
-		secretTrimmed := bytes.TrimSpace(secret)
-		if len(secretTrimmed) == 0 {
-			log.Printf("ERROR: Github secret file %s is empty.", fGitHubSecretPath)
-			os.Exit(1)
-		}
-		githubSecret = secretTrimmed
-		secretFile.Close()
-	} else {
-		githubSecret = []byte(os.Getenv("GITHUB_WEBHOOK_SECRET"))
-	}
-
-	if len(githubSecret) == 0 {
-		log.Fatal("ERROR: No GitHub webhook secret found.")
-	}
+	githubSecret = MustReadGithubSecret(*fGitHubSecretPath)
 
 	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/webhook", receiveHook)
 	http.Handle("/metrics", promhttp.Handler())
-	log.Fatal(http.ListenAndServe(fListenAddress, nil))
+	log.Fatal(http.ListenAndServe(*fListenAddress, nil))
 }

@@ -1,14 +1,12 @@
 language: go
 
 install:
-- go get github.com/google/go-github/github
 - go get github.com/mattn/goveralls
-- go get github.com/prometheus/client_golang/prometheus
-- go get github.com/prometheus/client_golang/prometheus/promhttp
 - ./travis/install_gcloud.sh kubectl
+- go get -t ./...
 
 script:
-- go test -v -coverprofile=coverage.out
+- go test -v -coverprofile=coverage.out ./...
 - $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci
 
 deploy:
