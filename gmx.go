@@ -20,10 +20,8 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -34,6 +32,7 @@ import (
 	"sync"
 
 	"github.com/google/go-github/github"
+	"github.com/m-lab/github-maintenance-exporter/maintenancestate"
 	"github.com/m-lab/github-maintenance-exporter/metrics"
 	"github.com/m-lab/go/rtx"
 	"github.com/prometheus/client_golang/prometheus"
@@ -65,68 +64,8 @@ var (
 		"mlab-oti":     regexp.MustCompile(`\/site\s+([a-z]{3}[0-9c]{2})(\s+del)?`),
 	}
 
-	state = maintenanceState{
-		Machines: make(map[string][]string),
-		Sites:    make(map[string][]string),
-	}
+	state *maintenancestate.MaintenanceState
 )
-
-// maintenanceState is a struct for storing both machine and site maintenance states.
-type maintenanceState struct {
-	Machines, Sites map[string][]string
-}
-
-// writeState serializes the content of a maintenanceState object into JSON and
-// writes it to a file on disk.
-func writeState(w io.Writer, s *maintenanceState) error {
-	data, err := json.MarshalIndent(s, "", "    ")
-	if err != nil {
-		log.Printf("ERROR: Failed to marshal JSON: %s", err)
-		metrics.Error.WithLabelValues("marshaljson", "writeState").Add(1)
-		return err
-	}
-
-	_, err = w.Write(data)
-	if err != nil {
-		log.Printf("ERROR: Failed to write state to %s: %s", *fStateFilePath, err)
-		metrics.Error.WithLabelValues("writefile", "writeState").Add(1)
-		return err
-	}
-
-	log.Printf("INFO: Successfully wrote state to %s.", *fStateFilePath)
-	return nil
-}
-
-// restoreState reads serialized JSON data from disk and loads it into
-// maintenanceState object.
-func restoreState(r io.Reader, s *maintenanceState) error {
-	data, err := ioutil.ReadAll(r)
-	if err != nil {
-		log.Printf("ERROR: Failed to read state data from %s: %s", *fStateFilePath, err)
-		metrics.Error.WithLabelValues("readfile", "restoreState").Inc()
-		return err
-	}
-
-	err = json.Unmarshal(data, &s)
-	if err != nil {
-		log.Printf("ERROR: Failed to unmarshal JSON: %s", err)
-		metrics.Error.WithLabelValues("unmarshaljson", "restoreState").Inc()
-		return err
-	}
-
-	// Restore machine maintenance state.
-	for machine := range s.Machines {
-		metrics.Machine.WithLabelValues(machine, machine).Set(cEnterMaintenance)
-	}
-
-	// Restore site maintenance state.
-	for site := range state.Sites {
-		metrics.Site.WithLabelValues(site).Set(cEnterMaintenance)
-	}
-
-	log.Printf("INFO: Successfully restored %s from disk.", *fStateFilePath)
-	return nil
-}
 
 // Looks for a string a slice.
 func stringInSlice(s string, list []string) int {
@@ -175,7 +114,7 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 // issue that added them to maintenance mode is closed. The return value is the
 // number of modifications that were made to the machine and site maintenance
 // state.
-func closeIssue(issueNumber string, s *maintenanceState) int {
+func closeIssue(issueNumber string, s *maintenancestate.MaintenanceState) int {
 	var totalMods = 0
 	// Remove any sites from maintenance that were set by this issue.
 	for site, issues := range s.Sites {
@@ -240,7 +179,7 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 // added to or removed from maintenance mode. If any matches are found, it
 // updates the state for the item. The return value is the number of
 // modifications that were made to the machine and site maintenance state.
-func parseMessage(msg string, issueNumber string, s *maintenanceState, project string) int {
+func parseMessage(msg string, issueNumber string, s *maintenancestate.MaintenanceState, project string) int {
 	var mods = 0
 	siteMatches := siteRegExps[project].FindAllStringSubmatch(msg, -1)
 	if len(siteMatches) > 0 {
@@ -329,9 +268,9 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		switch eventAction {
 		case "closed", "deleted":
 			log.Printf("INFO: Issue #%s was %s.", issueNumber, eventAction)
-			mods = closeIssue(issueNumber, &state)
+			mods = closeIssue(issueNumber, state)
 		case "opened", "edited":
-			mods = parseMessage(event.Issue.GetBody(), issueNumber, &state, *fProject)
+			mods = parseMessage(event.Issue.GetBody(), issueNumber, state, *fProject)
 		default:
 			log.Printf("INFO: Unsupported IssueEvent action: %s.", eventAction)
 			status = http.StatusNotImplemented
@@ -341,7 +280,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
 		issueState := event.Issue.GetState()
 		if issueState == "open" {
-			mods = parseMessage(event.Comment.GetBody(), issueNumber, &state, *fProject)
+			mods = parseMessage(event.Comment.GetBody(), issueNumber, state, *fProject)
 		} else {
 			log.Printf("INFO: Ignoring IssueComment event on closed issue #%s.", issueNumber)
 			status = http.StatusExpectationFailed
@@ -371,16 +310,9 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		mux.Lock()
 		defer mux.Unlock()
 
-		stateFile, err := os.Create(*fStateFilePath)
+		err = state.Write()
 		if err != nil {
-			log.Printf("ERROR: Failed to create state file %s: %s", *fStateFilePath, err)
-			metrics.Error.WithLabelValues("createfile", "writeState").Add(1)
-			return
-		}
-		defer stateFile.Close()
-		err = writeState(stateFile, &state)
-		if err != nil {
-			log.Printf("ERROR: failed to write state file %s: %s", *fStateFilePath, err)
+			log.Printf("ERROR: failed to write state file: %s", err)
 			metrics.Error.WithLabelValues("writefile", "receiveHook").Add(1)
 			return
 		}
@@ -415,14 +347,12 @@ func MustReadGithubSecret(filename string) []byte {
 func main() {
 	flag.Parse()
 
-	stateFile, err := os.Open(*fStateFilePath)
+	state = maintenancestate.New(*fStateFilePath)
+	err := state.Restore()
 	if err != nil {
 		log.Printf("WARNING: Failed to open state file %s: %s", *fStateFilePath, err)
 		metrics.Error.WithLabelValues("openfile", "main").Add(1)
-	} else {
-		restoreState(stateFile, &state)
 	}
-	stateFile.Close()
 
 	githubSecret = MustReadGithubSecret(*fGitHubSecretPath)
 
