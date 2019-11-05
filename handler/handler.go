@@ -11,7 +11,6 @@ import (
 	"github.com/google/go-github/github"
 	"github.com/m-lab/github-maintenance-exporter/maintenancestate"
 	"github.com/m-lab/github-maintenance-exporter/metrics"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 var (
@@ -35,109 +34,6 @@ type handler struct {
 	project      string
 }
 
-// Looks for a string a slice.
-func stringInSlice(s string, list []string) int {
-	for i, v := range list {
-		if v == s {
-			return i
-		}
-	}
-	return -1
-}
-
-// Removes a single issue from a site/machine. If the issue was the last one
-// associated with the site/machine, it will also remove the site/machine
-// from maintenance.
-func (h *handler) removeIssue(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
-	issueNumber string) int {
-
-	var mods = 0
-	mapElement := stateMap[mapKey]
-
-	issueIndex := stringInSlice(issueNumber, mapElement)
-	if issueIndex >= 0 {
-		mapElement[issueIndex] = mapElement[len(mapElement)-1]
-		mapElement = mapElement[:len(mapElement)-1]
-		if len(mapElement) == 0 {
-			delete(stateMap, mapKey)
-			// If this is a machine state, then we need to pass mapKey twice, once for the
-			// "machine" label and once for the "node" label.
-			if strings.HasPrefix(mapKey, "mlab") {
-				metricState.WithLabelValues(mapKey, mapKey).Set(0)
-			} else {
-				metricState.WithLabelValues(mapKey).Set(0)
-			}
-		} else {
-			stateMap[mapKey] = mapElement
-		}
-		log.Printf("INFO: %s was removed from maintenance for issue #%s", mapKey, issueNumber)
-		mods++
-	}
-	return mods
-}
-
-// closeIssue removes any machines and sites from maintenance mode when the
-// issue that added them to maintenance mode is closed. The return value is the
-// number of modifications that were made to the machine and site maintenance
-// state.
-func (h *handler) closeIssue(issueNumber string, s *maintenancestate.MaintenanceState) int {
-	var totalMods = 0
-	// Remove any sites from maintenance that were set by this issue.
-	for site, issues := range s.Sites {
-		issueIndex := stringInSlice(issueNumber, issues)
-		if issueIndex >= 0 {
-			mods := h.removeIssue(s.Sites, site, metrics.Site, issueNumber)
-			totalMods = totalMods + mods
-			// Since site is leaving maintenance, remove all associated machine maintenances.
-			for _, num := range []string{"1", "2", "3", "4"} {
-				machine := "mlab" + num + "." + site + ".measurement-lab.org"
-				mods := h.removeIssue(s.Machines, machine, metrics.Machine, issueNumber)
-				totalMods = totalMods + mods
-			}
-		}
-	}
-
-	// Remove any machines from maintenance that were set by this issue.
-	for machine, issues := range s.Machines {
-		issueIndex := stringInSlice(issueNumber, issues)
-		if issueIndex >= 0 {
-			mods := h.removeIssue(s.Machines, machine, metrics.Machine, issueNumber)
-			totalMods = totalMods + mods
-		}
-	}
-
-	return totalMods
-}
-
-// updateState modifies the maintenance state of a machine or site in the
-// in-memory map as well as updating the Prometheus metric.
-func (h *handler) updateState(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
-	issueNumber string, action maintenancestate.Action) {
-
-	switch action {
-	case maintenancestate.LeaveMaintenance:
-		h.removeIssue(stateMap, mapKey, metricState, issueNumber)
-	case maintenancestate.EnterMaintenance:
-		// Don't enter maintenance more than once for a given issue.
-		issueIndex := stringInSlice(issueNumber, stateMap[mapKey])
-		if issueIndex >= 0 {
-			log.Printf("INFO: %s is already in maintenance for issue #%s", mapKey, issueNumber)
-			return
-		}
-		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
-		// If this is a machine state, then we need to pass mapKey twice, once for the
-		// "machine" label and once for the "node" label.
-		if strings.HasPrefix(mapKey, "mlab") {
-			metricState.WithLabelValues(mapKey, mapKey).Set(float64(action))
-		} else {
-			metricState.WithLabelValues(mapKey).Set(float64(action))
-		}
-		log.Printf("INFO: %s was added to maintenance for issue #%s", mapKey, issueNumber)
-	default:
-		log.Printf("WARNING: Unknown action type: %f", action)
-	}
-}
-
 // parseMessage scans the body of an issue or comment looking for special flags
 // that match predefined patterns indicating that machine or site should be
 // added to or removed from maintenance mode. If any matches are found, it
@@ -150,23 +46,9 @@ func (h *handler) parseMessage(msg string, issueNumber string, s *maintenancesta
 		for _, site := range siteMatches {
 			log.Printf("INFO: Flag found for site: %s", site[1])
 			if strings.TrimSpace(site[2]) == "del" {
-				h.updateState(s.Sites, site[1], metrics.Site, issueNumber, maintenancestate.LeaveMaintenance)
-				mods++
-				// Since site is leaving maintenance, remove all associated machine maintenances.
-				for _, num := range []string{"1", "2", "3", "4"} {
-					machine := "mlab" + num + "." + site[1] + ".measurement-lab.org"
-					h.updateState(s.Machines, machine, metrics.Machine, issueNumber, maintenancestate.LeaveMaintenance)
-					mods++
-				}
+				mods += h.state.UpdateSite(site[1], maintenancestate.LeaveMaintenance, issueNumber)
 			} else {
-				h.updateState(s.Sites, site[1], metrics.Site, issueNumber, maintenancestate.EnterMaintenance)
-				mods++
-				// Since site is entering maintenance, add all associated machine maintenances.
-				for _, num := range []string{"1", "2", "3", "4"} {
-					machine := "mlab" + num + "." + site[1] + ".measurement-lab.org"
-					h.updateState(s.Machines, machine, metrics.Machine, issueNumber, maintenancestate.EnterMaintenance)
-					mods++
-				}
+				mods += h.state.UpdateSite(site[1], maintenancestate.EnterMaintenance, issueNumber)
 			}
 		}
 	}
@@ -177,10 +59,10 @@ func (h *handler) parseMessage(msg string, issueNumber string, s *maintenancesta
 			log.Printf("INFO: Flag found for machine: %s", machine[1])
 			label := machine[1] + ".measurement-lab.org"
 			if strings.TrimSpace(machine[2]) == "del" {
-				h.updateState(s.Machines, label, metrics.Machine, issueNumber, maintenancestate.LeaveMaintenance)
+				h.state.UpdateMachine(label, maintenancestate.LeaveMaintenance, issueNumber)
 				mods++
 			} else {
-				h.updateState(s.Machines, label, metrics.Machine, issueNumber, maintenancestate.EnterMaintenance)
+				h.state.UpdateMachine(label, maintenancestate.EnterMaintenance, issueNumber)
 				mods++
 			}
 		}
@@ -193,7 +75,7 @@ func (h *handler) parseMessage(msg string, issueNumber string, s *maintenancesta
 // hook, parses the payload, makes sure that the hook event matches at least one
 // event this exporter handles, then passes off the payload to parseMessage.
 func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	// Multithreaded map access is complicated, so for now we just guard
+	// Multithreaded map access+mutation is complicated, so for now we just guard
 	// everything with a global mutex.
 	h.mux.Lock()
 	defer h.mux.Unlock()
@@ -227,7 +109,7 @@ func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		switch eventAction {
 		case "closed", "deleted":
 			log.Printf("INFO: Issue #%s was %s.", issueNumber, eventAction)
-			mods = h.closeIssue(issueNumber, h.state)
+			mods = h.state.CloseIssue(issueNumber)
 		case "opened", "edited":
 			mods = h.parseMessage(event.Issue.GetBody(), issueNumber, h.state, h.project)
 		default:
@@ -278,6 +160,7 @@ func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	return
 }
 
+// New creates an http.Handler for receiving github webhook events to update the maintenance state.
 func New(state *maintenancestate.MaintenanceState, githubSecret []byte, project string) http.Handler {
 	return &handler{
 		state:        state,
