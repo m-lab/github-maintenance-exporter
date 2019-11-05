@@ -46,6 +46,11 @@ func generateSignature(secret, msg []byte) string {
 	return "sha1=" + hex.EncodeToString(mac.Sum(nil))
 }
 
+func TestUpdateStateWithBadValue(t *testing.T) {
+	h := New(nil, []byte{}, "").(*handler)
+	h.updateState(nil, "", nil, "", -1)  // The -1 should not be a legal action.
+}
+
 func TestReceiveHook(t *testing.T) {
 	state, _ := maintenancestate.New("/does/not/exist/and/thats/okay")
 	githubSecret := []byte("goodsecret")
@@ -191,11 +196,7 @@ func TestReceiveHook(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		h := handler{
-			state:        state,
-			githubSecret: githubSecret,
-			project:      "mlab-oti",
-		}
+		h := New(state, githubSecret, "mlab-oti")
 		sig := generateSignature(test.secretKey, test.payload)
 		req, err := http.NewRequest("POST", "/webhook", strings.NewReader(string(test.payload)))
 		if err != nil {
