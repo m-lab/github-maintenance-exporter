@@ -11,17 +11,25 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// Action describes what the maintenance exporter can do to a site or machine.
 type Action float64
 
 const (
+	// EnterMaintenance puts a machine or site into maintenance mode.
 	EnterMaintenance Action = 1
+	// LeaveMaintenance takes a machine or site out of maintenance mode.
 	LeaveMaintenance Action = 0
 )
 
+// This is the state that is serialized to disk.
+type state struct {
+	Machines, Sites map[string][]string
+}
+
 // MaintenanceState is a struct for storing both machine and site maintenance states.
 type MaintenanceState struct {
-	Machines, Sites map[string][]string
-	filename        string
+	state    state
+	filename string
 }
 
 // Looks for a string a slice.
@@ -94,15 +102,16 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 	}
 }
 
-func (s *MaintenanceState) Restore() error {
-	data, err := ioutil.ReadFile(s.filename)
+// Restore the maintenance state from disk.
+func (ms *MaintenanceState) Restore() error {
+	data, err := ioutil.ReadFile(ms.filename)
 	if err != nil {
-		log.Printf("ERROR: Failed to read state data from %s: %s", s.filename, err)
+		log.Printf("ERROR: Failed to read state data from %s: %s", ms.filename, err)
 		metrics.Error.WithLabelValues("readfile", "maintenancestate.Restore").Inc()
 		return err
 	}
 
-	err = json.Unmarshal(data, &s)
+	err = json.Unmarshal(data, &ms.state)
 	if err != nil {
 		log.Printf("ERROR: Failed to unmarshal JSON: %s", err)
 		metrics.Error.WithLabelValues("unmarshaljson", "maintenancestate.Restore").Inc()
@@ -110,49 +119,51 @@ func (s *MaintenanceState) Restore() error {
 	}
 
 	// Restore machine maintenance state.
-	for machine := range s.Machines {
+	for machine := range ms.state.Machines {
 		metrics.Machine.WithLabelValues(machine, machine).Set(float64(EnterMaintenance))
 	}
 
 	// Restore site maintenance state.
-	for site := range s.Sites {
+	for site := range ms.state.Sites {
 		metrics.Site.WithLabelValues(site).Set(float64(EnterMaintenance))
 	}
 
-	log.Printf("INFO: Successfully restored %s from disk.", s.filename)
+	log.Printf("INFO: Successfully restored %s from disk.", ms.filename)
 	return nil
 }
 
 // Write serializes the content of a maintenanceState object into JSON and
 // writes it to a file on disk.
-func (s *MaintenanceState) Write() error {
-	data, err := json.MarshalIndent(s, "", "    ")
+func (ms *MaintenanceState) Write() error {
+	data, err := json.MarshalIndent(ms.state, "", "    ")
 	rtx.Must(err, "Could not marshal MaintenanceState to a buffer.  This should never happen.")
 
-	err = ioutil.WriteFile(s.filename, data, 0664)
+	err = ioutil.WriteFile(ms.filename, data, 0664)
 	if err != nil {
-		log.Printf("ERROR: Failed to write state to %s: %s", s.filename, err)
+		log.Printf("ERROR: Failed to write state to %s: %s", ms.filename, err)
 		metrics.Error.WithLabelValues("writefile", "maintenancestate.Write").Add(1)
 		return err
 	}
 
-	log.Printf("INFO: Successfully wrote state to %s.", s.filename)
+	log.Printf("INFO: Successfully wrote state to %s.", ms.filename)
 	return nil
 }
 
-func (s *MaintenanceState) UpdateMachine(machine string, action Action, issue string) int {
-	updateState(s.Machines, machine, metrics.Machine, issue, action)
+// UpdateMachine causes a single machine to enter or exit maintenance mode.
+func (ms *MaintenanceState) UpdateMachine(machine string, action Action, issue string) int {
+	updateState(ms.state.Machines, machine, metrics.Machine, issue, action)
 	return 1
 }
 
-func (s *MaintenanceState) UpdateSite(site string, action Action, issue string) int {
+// UpdateSite causes a whole site to enter or exit maintenance mode.
+func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string) int {
 	var mods int
-	updateState(s.Sites, site, metrics.Site, issue, action)
+	updateState(ms.state.Sites, site, metrics.Site, issue, action)
 	mods++
 	// Since site is leaving/entering maintenance, remove all associated machine maintenances.
 	for _, num := range []string{"1", "2", "3", "4"} {
 		machine := "mlab" + num + "." + site + ".measurement-lab.org"
-		mods += s.UpdateMachine(machine, action, issue)
+		mods += ms.UpdateMachine(machine, action, issue)
 	}
 	return mods
 }
@@ -161,28 +172,28 @@ func (s *MaintenanceState) UpdateSite(site string, action Action, issue string) 
 // issue that added them to maintenance mode is closed. The return value is the
 // number of modifications that were made to the machine and site maintenance
 // state.
-func (s *MaintenanceState) CloseIssue(issue string) int {
+func (ms *MaintenanceState) CloseIssue(issue string) int {
 	var totalMods = 0
 	// Remove any sites from maintenance that were set by this issue.
-	for site, issues := range s.Sites {
+	for site, issues := range ms.state.Sites {
 		issueIndex := stringInSlice(issue, issues)
 		if issueIndex >= 0 {
-			mods := removeIssue(s.Sites, site, metrics.Site, issue)
+			mods := removeIssue(ms.state.Sites, site, metrics.Site, issue)
 			totalMods = totalMods + mods
 			// Since site is leaving maintenance, remove all associated machine maintenances.
 			for _, num := range []string{"1", "2", "3", "4"} {
 				machine := "mlab" + num + "." + site + ".measurement-lab.org"
-				mods := removeIssue(s.Machines, machine, metrics.Machine, issue)
+				mods := removeIssue(ms.state.Machines, machine, metrics.Machine, issue)
 				totalMods = totalMods + mods
 			}
 		}
 	}
 
 	// Remove any machines from maintenance that were set by this issue.
-	for machine, issues := range s.Machines {
+	for machine, issues := range ms.state.Machines {
 		issueIndex := stringInSlice(issue, issues)
 		if issueIndex >= 0 {
-			mods := removeIssue(s.Machines, machine, metrics.Machine, issue)
+			mods := removeIssue(ms.state.Machines, machine, metrics.Machine, issue)
 			totalMods = totalMods + mods
 		}
 	}
@@ -190,10 +201,14 @@ func (s *MaintenanceState) CloseIssue(issue string) int {
 	return totalMods
 }
 
+// New creates a MaintenanceState based on the passed-in filename. If it can't
+// be restored from disk, it also generates an error.
 func New(filename string) (*MaintenanceState, error) {
 	s := &MaintenanceState{
-		Machines: make(map[string][]string),
-		Sites:    make(map[string][]string),
+		state: state{
+			Machines: make(map[string][]string),
+			Sites:    make(map[string][]string),
+		},
 		filename: filename,
 	}
 	err := s.Restore()

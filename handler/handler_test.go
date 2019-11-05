@@ -46,11 +46,6 @@ func generateSignature(secret, msg []byte) string {
 	return "sha1=" + hex.EncodeToString(mac.Sum(nil))
 }
 
-func TestUpdateStateWithBadValue(t *testing.T) {
-	h := New(nil, []byte{}, "").(*handler)
-	h.updateState(nil, "", nil, "", -1)  // The -1 should not be a legal action.
-}
-
 func TestReceiveHook(t *testing.T) {
 	state, _ := maintenancestate.New("/does/not/exist/and/thats/okay")
 	githubSecret := []byte("goodsecret")
@@ -212,59 +207,6 @@ func TestReceiveHook(t *testing.T) {
 		if status := rec.Code; status != test.expectedStatus {
 			t.Errorf("receiveHook(): test %s: wrong HTTP status: got %v; want %v",
 				test.name, rec.Code, test.expectedStatus)
-		}
-	}
-}
-
-func TestCloseIssue(t *testing.T) {
-	f, err := ioutil.TempFile("", "TestCloseIssue")
-	rtx.Must(err, "Could not create tempfile")
-	fname := f.Name()
-	defer os.Remove(fname)
-	rtx.Must(ioutil.WriteFile(fname, []byte(savedState), 0644), "Could not write state to tempfile")
-
-	s, err := maintenancestate.New(fname)
-	rtx.Must(err, "Could not read from tmpfile")
-
-	tests := []struct {
-		name              string
-		issue             string
-		expectedMods      int
-		closedMaintenance int
-	}{
-		{
-			name:              "one-issue-per-entity-closes-maintenance",
-			issue:             "8",
-			expectedMods:      5,
-			closedMaintenance: 5,
-		},
-		{
-			name:              "multiple-issues-per-entity-does-not-close-maintenance",
-			issue:             "4",
-			expectedMods:      5,
-			closedMaintenance: 0,
-		},
-	}
-
-	for _, test := range tests {
-		rtx.Must(s.Restore(), "Could not restore state from tempfile")
-		h := handler{
-			state: s,
-		}
-
-		totalEntitiesBefore := len(s.Machines) + len(s.Sites)
-		mods := h.closeIssue(test.issue, s)
-		totalEntitiesAfter := len(s.Machines) + len(s.Sites)
-		closedMaintenance := totalEntitiesBefore - totalEntitiesAfter
-
-		if mods != test.expectedMods {
-			t.Errorf("closeIssue(): Expected %d state modifications; got %d",
-				test.expectedMods, mods)
-		}
-
-		if closedMaintenance != test.closedMaintenance {
-			t.Errorf("closeIssue(): Expected %d closed maintenances; got %d",
-				test.closedMaintenance, closedMaintenance)
 		}
 	}
 }

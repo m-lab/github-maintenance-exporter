@@ -43,7 +43,9 @@ var (
 	fGitHubSecretPath = flag.String("storage.github-secret", "", "Filesystem path of file containing the shared Github webhook secret.")
 	fProject          = flag.String("project", "mlab-oti", "GCP project where this instance is running.")
 
+	// Variables to aid in the testing of main()
 	mainCtx, mainCancel = context.WithCancel(context.Background())
+	logFatal            = log.Fatal
 )
 
 // rootHandler implements the simplest possible handler for root requests,
@@ -72,7 +74,7 @@ func MustReadGithubSecret(filename string) []byte {
 
 	secretTrimmed := bytes.TrimSpace(secret)
 	if len(secretTrimmed) == 0 {
-		log.Fatal("ERROR: Github secret is empty.")
+		logFatal("ERROR: Github secret is empty.")
 	}
 	return secretTrimmed
 }
@@ -108,8 +110,5 @@ func main() {
 	}()
 
 	// Listen forever, or until the context is closed.
-	err = srv.ListenAndServe()
-	if err != http.ErrServerClosed {
-		log.Fatal("Server exited abnornmally:", err)
-	}
+	logFatal(srv.ListenAndServe())
 }
