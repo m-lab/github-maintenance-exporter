@@ -7,8 +7,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/m-lab/github-maintenance-exporter/maintenancestate"
+	"github.com/m-lab/go/rtx"
 )
 
 // Sample maintenance state as written to disk in JSON format.
@@ -66,26 +70,8 @@ func TestRootHandler(t *testing.T) {
 	}
 }
 
-func TestRestoreState(t *testing.T) {
-	expectedMachines := 10
-	expectedSites := 2
-
-	r := strings.NewReader(savedState)
-	var s maintenanceState
-	restoreState(r, &s)
-
-	if len(s.Machines) != expectedMachines {
-		t.Errorf("restoreState(): Expected %d restored machines; have %d.",
-			expectedMachines, len(s.Machines))
-	}
-
-	if len(s.Sites) != expectedSites {
-		t.Errorf("restoreState(): Expected %d restored sites; have %d.",
-			expectedSites, len(s.Sites))
-	}
-}
-
 func TestReceiveHook(t *testing.T) {
+	state = maintenancestate.New("")
 	githubSecret = []byte("goodsecret")
 
 	tests := []struct {
@@ -249,6 +235,13 @@ func TestReceiveHook(t *testing.T) {
 }
 
 func TestCloseIssue(t *testing.T) {
+	f, err := ioutil.TempFile("", "TestCloseIssue")
+	rtx.Must(err, "Could not create tempfile")
+	fname := f.Name()
+	defer os.Remove(fname)
+	rtx.Must(ioutil.WriteFile(fname, []byte(savedState), 0644), "Could not write state to tempfile")
+
+	s := maintenancestate.New(fname)
 
 	tests := []struct {
 		name              string
@@ -271,12 +264,10 @@ func TestCloseIssue(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		r := strings.NewReader(savedState)
-		var s maintenanceState
-		restoreState(r, &s)
+		rtx.Must(s.Restore(), "Could not restore state from tempfile")
 
 		totalEntitiesBefore := len(s.Machines) + len(s.Sites)
-		mods := closeIssue(test.issue, &s)
+		mods := closeIssue(test.issue, s)
 		totalEntitiesAfter := len(s.Machines) + len(s.Sites)
 		closedMaintenance := totalEntitiesBefore - totalEntitiesAfter
 
@@ -293,9 +284,14 @@ func TestCloseIssue(t *testing.T) {
 }
 
 func TestParseMessage(t *testing.T) {
-	r := strings.NewReader(savedState)
-	var s = state
-	restoreState(r, &s)
+	f, err := ioutil.TempFile("", "TestCloseIssue")
+	rtx.Must(err, "Could not create tempfile")
+	fname := f.Name()
+	defer os.Remove(fname)
+	rtx.Must(ioutil.WriteFile(fname, []byte(savedState), 0644), "Could not write state to tempfile")
+
+	s := maintenancestate.New(fname)
+	rtx.Must(s.Restore(), "Could not restore state")
 
 	tests := []struct {
 		name         string
@@ -366,7 +362,7 @@ func TestParseMessage(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		mods := parseMessage(test.msg, "99", &s, test.project)
+		mods := parseMessage(test.msg, "99", s, test.project)
 		if mods != test.expectedMods {
 			t.Errorf("parseMessage(): %s: expected %d state modifications; got %d",
 				test.name, test.expectedMods, mods)
