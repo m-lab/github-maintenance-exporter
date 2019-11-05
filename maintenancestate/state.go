@@ -68,6 +68,18 @@ func (s *MaintenanceState) Write() error {
 	return nil
 }
 
+func (s *MaintenanceState) UpdateMachine(site string, action Action, issue string) int {
+	return 0
+}
+
+func (s *MaintenanceState) UpdateSite(site string, action Action, issue string) int {
+	return 0
+}
+
+func (s *MaintenanceState) CloseIssue(issue string) int {
+	return 0
+}
+
 func New(filename string) (*MaintenanceState, error) {
 	s := &MaintenanceState{
 		Machines: make(map[string][]string),
