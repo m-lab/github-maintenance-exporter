@@ -347,11 +347,11 @@ func MustReadGithubSecret(filename string) []byte {
 func main() {
 	flag.Parse()
 
-	state = maintenancestate.New(*fStateFilePath)
-	err := state.Restore()
+	var err error
+	state, err = maintenancestate.New(*fStateFilePath)
 	if err != nil {
+		// TODO: Should this be a fatal error, or is this okay?
 		log.Printf("WARNING: Failed to open state file %s: %s", *fStateFilePath, err)
-		metrics.Error.WithLabelValues("openfile", "main").Add(1)
 	}
 
 	githubSecret = MustReadGithubSecret(*fGitHubSecretPath)

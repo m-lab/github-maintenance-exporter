@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/m-lab/github-maintenance-exporter/metrics"
+	"github.com/m-lab/go/rtx"
 )
 
 type Action float64
@@ -25,14 +26,14 @@ func (s *MaintenanceState) Restore() error {
 	data, err := ioutil.ReadFile(s.filename)
 	if err != nil {
 		log.Printf("ERROR: Failed to read state data from %s: %s", s.filename, err)
-		metrics.Error.WithLabelValues("readfile", "restoreState").Inc()
+		metrics.Error.WithLabelValues("readfile", "maintenancestate.Restore").Inc()
 		return err
 	}
 
 	err = json.Unmarshal(data, &s)
 	if err != nil {
 		log.Printf("ERROR: Failed to unmarshal JSON: %s", err)
-		metrics.Error.WithLabelValues("unmarshaljson", "restoreState").Inc()
+		metrics.Error.WithLabelValues("unmarshaljson", "maintenancestate.Restore").Inc()
 		return err
 	}
 
@@ -54,16 +55,12 @@ func (s *MaintenanceState) Restore() error {
 // writes it to a file on disk.
 func (s *MaintenanceState) Write() error {
 	data, err := json.MarshalIndent(s, "", "    ")
-	if err != nil {
-		log.Printf("ERROR: Failed to marshal JSON: %s", err)
-		metrics.Error.WithLabelValues("marshaljson", "writeState").Add(1)
-		return err
-	}
+	rtx.Must(err, "Could not marshal MaintenanceState to a buffer.  This should never happen.")
 
 	err = ioutil.WriteFile(s.filename, data, 0664)
 	if err != nil {
 		log.Printf("ERROR: Failed to write state to %s: %s", s.filename, err)
-		metrics.Error.WithLabelValues("writefile", "writeState").Add(1)
+		metrics.Error.WithLabelValues("writefile", "maintenancestate.Write").Add(1)
 		return err
 	}
 
@@ -71,7 +68,7 @@ func (s *MaintenanceState) Write() error {
 	return nil
 }
 
-func New(filename string) *MaintenanceState {
+func New(filename string) (*MaintenanceState, error) {
 	s := &MaintenanceState{
 		Machines: make(map[string][]string),
 		Sites:    make(map[string][]string),
@@ -79,8 +76,8 @@ func New(filename string) *MaintenanceState {
 	}
 	err := s.Restore()
 	if err != nil {
-		log.Printf("WARNING: Failed to open state file %s: %s", filename, err)
-		metrics.Error.WithLabelValues("openfile", "main").Add(1)
+		log.Printf("WARNING: Failed to restore state file %s: %s", filename, err)
+		metrics.Error.WithLabelValues("restore", "maintenancestate.New").Add(1)
 	}
-	return s
+	return s, err
 }
