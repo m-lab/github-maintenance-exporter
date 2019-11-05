@@ -34,9 +34,9 @@ import (
 	"sync"
 
 	"github.com/google/go-github/github"
+	"github.com/m-lab/github-maintenance-exporter/metrics"
 	"github.com/m-lab/go/rtx"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -65,39 +65,6 @@ var (
 		"mlab-oti":     regexp.MustCompile(`\/site\s+([a-z]{3}[0-9c]{2})(\s+del)?`),
 	}
 
-	// Prometheus metric for exposing any errors that the exporter encounters.
-	metricError = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "gmx_error_count",
-			Help: "Count of errors.",
-		},
-		[]string{
-			"type",
-			"function",
-		},
-	)
-	// Prometheus metric for exposing machine maintenance status.
-	metricMachine = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "gmx_machine_maintenance",
-			Help: "Whether a machine is in maitenance mode or not.",
-		},
-		[]string{
-			"machine",
-			"node",
-		},
-	)
-	// Prometheus metric for exposing site maintenance status.
-	metricSite = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "gmx_site_maintenance",
-			Help: "Whether a site is in maintenance mode or not.",
-		},
-		[]string{
-			"site",
-		},
-	)
-
 	state = maintenanceState{
 		Machines: make(map[string][]string),
 		Sites:    make(map[string][]string),
@@ -115,14 +82,14 @@ func writeState(w io.Writer, s *maintenanceState) error {
 	data, err := json.MarshalIndent(s, "", "    ")
 	if err != nil {
 		log.Printf("ERROR: Failed to marshal JSON: %s", err)
-		metricError.WithLabelValues("marshaljson", "writeState").Add(1)
+		metrics.Error.WithLabelValues("marshaljson", "writeState").Add(1)
 		return err
 	}
 
 	_, err = w.Write(data)
 	if err != nil {
 		log.Printf("ERROR: Failed to write state to %s: %s", *fStateFilePath, err)
-		metricError.WithLabelValues("writefile", "writeState").Add(1)
+		metrics.Error.WithLabelValues("writefile", "writeState").Add(1)
 		return err
 	}
 
@@ -136,25 +103,25 @@ func restoreState(r io.Reader, s *maintenanceState) error {
 	data, err := ioutil.ReadAll(r)
 	if err != nil {
 		log.Printf("ERROR: Failed to read state data from %s: %s", *fStateFilePath, err)
-		metricError.WithLabelValues("readfile", "restoreState").Inc()
+		metrics.Error.WithLabelValues("readfile", "restoreState").Inc()
 		return err
 	}
 
 	err = json.Unmarshal(data, &s)
 	if err != nil {
 		log.Printf("ERROR: Failed to unmarshal JSON: %s", err)
-		metricError.WithLabelValues("unmarshaljson", "restoreState").Inc()
+		metrics.Error.WithLabelValues("unmarshaljson", "restoreState").Inc()
 		return err
 	}
 
 	// Restore machine maintenance state.
 	for machine := range s.Machines {
-		metricMachine.WithLabelValues(machine, machine).Set(cEnterMaintenance)
+		metrics.Machine.WithLabelValues(machine, machine).Set(cEnterMaintenance)
 	}
 
 	// Restore site maintenance state.
 	for site := range state.Sites {
-		metricSite.WithLabelValues(site).Set(cEnterMaintenance)
+		metrics.Site.WithLabelValues(site).Set(cEnterMaintenance)
 	}
 
 	log.Printf("INFO: Successfully restored %s from disk.", *fStateFilePath)
@@ -214,12 +181,12 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 	for site, issues := range s.Sites {
 		issueIndex := stringInSlice(issueNumber, issues)
 		if issueIndex >= 0 {
-			mods := removeIssue(s.Sites, site, metricSite, issueNumber)
+			mods := removeIssue(s.Sites, site, metrics.Site, issueNumber)
 			totalMods = totalMods + mods
 			// Since site is leaving maintenance, remove all associated machine maintenances.
 			for _, num := range []string{"1", "2", "3", "4"} {
 				machine := "mlab" + num + "." + site + ".measurement-lab.org"
-				mods := removeIssue(s.Machines, machine, metricMachine, issueNumber)
+				mods := removeIssue(s.Machines, machine, metrics.Machine, issueNumber)
 				totalMods = totalMods + mods
 			}
 		}
@@ -229,7 +196,7 @@ func closeIssue(issueNumber string, s *maintenanceState) int {
 	for machine, issues := range s.Machines {
 		issueIndex := stringInSlice(issueNumber, issues)
 		if issueIndex >= 0 {
-			mods := removeIssue(s.Machines, machine, metricMachine, issueNumber)
+			mods := removeIssue(s.Machines, machine, metrics.Machine, issueNumber)
 			totalMods = totalMods + mods
 		}
 	}
@@ -280,21 +247,21 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState, project s
 		for _, site := range siteMatches {
 			log.Printf("INFO: Flag found for site: %s", site[1])
 			if strings.TrimSpace(site[2]) == "del" {
-				updateState(s.Sites, site[1], metricSite, issueNumber, cLeaveMaintenance)
+				updateState(s.Sites, site[1], metrics.Site, issueNumber, cLeaveMaintenance)
 				mods++
 				// Since site is leaving maintenance, remove all associated machine maintenances.
 				for _, num := range []string{"1", "2", "3", "4"} {
 					machine := "mlab" + num + "." + site[1] + ".measurement-lab.org"
-					updateState(s.Machines, machine, metricMachine, issueNumber, cLeaveMaintenance)
+					updateState(s.Machines, machine, metrics.Machine, issueNumber, cLeaveMaintenance)
 					mods++
 				}
 			} else {
-				updateState(s.Sites, site[1], metricSite, issueNumber, cEnterMaintenance)
+				updateState(s.Sites, site[1], metrics.Site, issueNumber, cEnterMaintenance)
 				mods++
 				// Since site is entering maintenance, add all associated machine maintenances.
 				for _, num := range []string{"1", "2", "3", "4"} {
 					machine := "mlab" + num + "." + site[1] + ".measurement-lab.org"
-					updateState(s.Machines, machine, metricMachine, issueNumber, cEnterMaintenance)
+					updateState(s.Machines, machine, metrics.Machine, issueNumber, cEnterMaintenance)
 					mods++
 				}
 			}
@@ -307,10 +274,10 @@ func parseMessage(msg string, issueNumber string, s *maintenanceState, project s
 			log.Printf("INFO: Flag found for machine: %s", machine[1])
 			label := machine[1] + ".measurement-lab.org"
 			if strings.TrimSpace(machine[2]) == "del" {
-				updateState(s.Machines, label, metricMachine, issueNumber, cLeaveMaintenance)
+				updateState(s.Machines, label, metrics.Machine, issueNumber, cLeaveMaintenance)
 				mods++
 			} else {
-				updateState(s.Machines, label, metricMachine, issueNumber, cEnterMaintenance)
+				updateState(s.Machines, label, metrics.Machine, issueNumber, cEnterMaintenance)
 				mods++
 			}
 		}
@@ -341,7 +308,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	payload, err := github.ValidatePayload(req, githubSecret)
 	if err != nil {
 		log.Printf("ERROR: Validation of Webhook failed: %s", err)
-		metricError.WithLabelValues("validatehook", "receiveHook").Add(1)
+		metrics.Error.WithLabelValues("validatehook", "receiveHook").Add(1)
 		resp.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -349,7 +316,7 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 	event, err := github.ParseWebHook(github.WebHookType(req), payload)
 	if err != nil {
 		log.Printf("ERROR: Failed to parse webhook with error: %s", err)
-		metricError.WithLabelValues("parsehook", "receiveHook").Add(1)
+		metrics.Error.WithLabelValues("parsehook", "receiveHook").Add(1)
 		resp.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -407,14 +374,14 @@ func receiveHook(resp http.ResponseWriter, req *http.Request) {
 		stateFile, err := os.Create(*fStateFilePath)
 		if err != nil {
 			log.Printf("ERROR: Failed to create state file %s: %s", *fStateFilePath, err)
-			metricError.WithLabelValues("createfile", "writeState").Add(1)
+			metrics.Error.WithLabelValues("createfile", "writeState").Add(1)
 			return
 		}
 		defer stateFile.Close()
 		err = writeState(stateFile, &state)
 		if err != nil {
 			log.Printf("ERROR: failed to write state file %s: %s", *fStateFilePath, err)
-			metricError.WithLabelValues("writefile", "receiveHook").Add(1)
+			metrics.Error.WithLabelValues("writefile", "receiveHook").Add(1)
 			return
 		}
 	}
@@ -451,7 +418,7 @@ func main() {
 	stateFile, err := os.Open(*fStateFilePath)
 	if err != nil {
 		log.Printf("WARNING: Failed to open state file %s: %s", *fStateFilePath, err)
-		metricError.WithLabelValues("openfile", "main").Add(1)
+		metrics.Error.WithLabelValues("openfile", "main").Add(1)
 	} else {
 		restoreState(stateFile, &state)
 	}
