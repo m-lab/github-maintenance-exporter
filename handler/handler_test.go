@@ -284,7 +284,7 @@ func TestReceiveHook(t *testing.T) {
 				test.stateFile = dir + "/" + test.name
 			}
 			ioutil.WriteFile(test.stateFile, []byte(test.initialState), 0644)
-			state, err := maintenancestate.New(test.stateFile)
+			state, _ := maintenancestate.New(test.stateFile)
 			h := New(state, githubSecret, "mlab-oti")
 			sig := generateSignature(test.secretKey, []byte(test.payload))
 			req, err := http.NewRequest("POST", "/webhook", strings.NewReader(string(test.payload)))

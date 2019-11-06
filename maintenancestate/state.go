@@ -1,3 +1,6 @@
+// Package maintenancestate provides all the structures and methods necessary to
+// keep track of what is and isn't in maintenance mode, and to save and load
+// that information from disk.
 package maintenancestate
 
 import (
@@ -21,6 +24,10 @@ const (
 	LeaveMaintenance Action = 1
 )
 
+// StatusValue converts the int underlying the Action into a float64 suitable
+// for assigning to a gague metric. When a site or machine is in maintenance
+// mode, the value assigned to the gauge is 1, and when it is not, the value is
+// 0.
 func (a Action) StatusValue() float64 {
 	return float64(int(a) - 1)
 }

@@ -1,3 +1,5 @@
+// Package handler contains all the code that parses an incoming web request
+// (likely from github's web hooks).
 package handler
 
 import (
