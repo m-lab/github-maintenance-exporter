@@ -39,9 +39,9 @@ type handler struct {
 // added to or removed from maintenance mode. If any matches are found, it
 // updates the state for the item. The return value is the number of
 // modifications that were made to the machine and site maintenance state.
-func (h *handler) parseMessage(msg string, issueNumber string, s *maintenancestate.MaintenanceState, project string) int {
+func (h *handler) parseMessage(msg string, issueNumber string) int {
 	var mods = 0
-	siteMatches := siteRegExps[project].FindAllStringSubmatch(msg, -1)
+	siteMatches := siteRegExps[h.project].FindAllStringSubmatch(msg, -1)
 	if len(siteMatches) > 0 {
 		for _, site := range siteMatches {
 			log.Printf("INFO: Flag found for site: %s", site[1])
@@ -53,7 +53,7 @@ func (h *handler) parseMessage(msg string, issueNumber string, s *maintenancesta
 		}
 	}
 
-	machineMatches := machineRegExps[project].FindAllStringSubmatch(msg, -1)
+	machineMatches := machineRegExps[h.project].FindAllStringSubmatch(msg, -1)
 	if len(machineMatches) > 0 {
 		for _, machine := range machineMatches {
 			log.Printf("INFO: Flag found for machine: %s", machine[1])
@@ -111,7 +111,7 @@ func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 			log.Printf("INFO: Issue #%s was %s.", issueNumber, eventAction)
 			mods = h.state.CloseIssue(issueNumber)
 		case "opened", "edited":
-			mods = h.parseMessage(event.Issue.GetBody(), issueNumber, h.state, h.project)
+			mods = h.parseMessage(event.Issue.GetBody(), issueNumber)
 		default:
 			log.Printf("INFO: Unsupported IssueEvent action: %s.", eventAction)
 			status = http.StatusNotImplemented
@@ -121,7 +121,7 @@ func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		issueNumber = strconv.Itoa(event.Issue.GetNumber())
 		issueState := event.Issue.GetState()
 		if issueState == "open" {
-			mods = h.parseMessage(event.Comment.GetBody(), issueNumber, h.state, h.project)
+			mods = h.parseMessage(event.Comment.GetBody(), issueNumber)
 		} else {
 			log.Printf("INFO: Ignoring IssueComment event on closed issue #%s.", issueNumber)
 			status = http.StatusExpectationFailed
@@ -152,7 +152,7 @@ func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			log.Printf("ERROR: failed to write state file: %s", err)
 			metrics.Error.WithLabelValues("writefile", "receiveHook").Add(1)
-			return
+			status = http.StatusInternalServerError
 		}
 	}
 

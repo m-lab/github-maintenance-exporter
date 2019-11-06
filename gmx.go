@@ -34,9 +34,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-const cEnterMaintenance float64 = 1
-const cLeaveMaintenance float64 = 0
-
 var (
 	fListenAddress    = flag.String("web.listen-address", ":9999", "Address to listen on for telemetry.")
 	fStateFilePath    = flag.String("storage.state-file", "/tmp/gmx-state", "Filesystem path for the state file.")

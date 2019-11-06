@@ -32,6 +32,12 @@ var savedState = `
 	}
 `
 
+func TestActionStatus(t *testing.T) {
+	if EnterMaintenance.StatusValue() != 1 || LeaveMaintenance.StatusValue() != 0 {
+		t.Error(EnterMaintenance.StatusValue(), "and", LeaveMaintenance.StatusValue(), "should be 1 and 0")
+	}
+}
+
 func TestUpdateStateWithBadValue(t *testing.T) {
 	updateState(nil, "", nil, "", -1) // The -1 should not be a legal action.
 }

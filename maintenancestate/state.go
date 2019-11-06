@@ -12,14 +12,18 @@ import (
 )
 
 // Action describes what the maintenance exporter can do to a site or machine.
-type Action float64
+type Action int
 
 const (
 	// EnterMaintenance puts a machine or site into maintenance mode.
-	EnterMaintenance Action = 1
+	EnterMaintenance Action = 2
 	// LeaveMaintenance takes a machine or site out of maintenance mode.
-	LeaveMaintenance Action = 0
+	LeaveMaintenance Action = 1
 )
+
+func (a Action) StatusValue() float64 {
+	return float64(int(a) - 1)
+}
 
 // This is the state that is serialized to disk.
 type state struct {
@@ -76,29 +80,30 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 // updateState modifies the maintenance state of a machine or site in the
 // in-memory map as well as updating the Prometheus metric.
 func updateState(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
-	issueNumber string, action Action) {
-
+	issueNumber string, action Action) int {
 	switch action {
 	case LeaveMaintenance:
-		removeIssue(stateMap, mapKey, metricState, issueNumber)
+		return removeIssue(stateMap, mapKey, metricState, issueNumber)
 	case EnterMaintenance:
 		// Don't enter maintenance more than once for a given issue.
 		issueIndex := stringInSlice(issueNumber, stateMap[mapKey])
 		if issueIndex >= 0 {
 			log.Printf("INFO: %s is already in maintenance for issue #%s", mapKey, issueNumber)
-			return
+			return 0
 		}
 		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
 		// If this is a machine state, then we need to pass mapKey twice, once for the
 		// "machine" label and once for the "node" label.
 		if strings.HasPrefix(mapKey, "mlab") {
-			metricState.WithLabelValues(mapKey, mapKey).Set(float64(action))
+			metricState.WithLabelValues(mapKey, mapKey).Set(action.StatusValue())
 		} else {
-			metricState.WithLabelValues(mapKey).Set(float64(action))
+			metricState.WithLabelValues(mapKey).Set(action.StatusValue())
 		}
 		log.Printf("INFO: %s was added to maintenance for issue #%s", mapKey, issueNumber)
+		return 1
 	default:
-		log.Printf("WARNING: Unknown action type: %f", action)
+		log.Printf("WARNING: Unknown action type: %d", action)
+		return 0
 	}
 }
 
@@ -120,12 +125,12 @@ func (ms *MaintenanceState) Restore() error {
 
 	// Restore machine maintenance state.
 	for machine := range ms.state.Machines {
-		metrics.Machine.WithLabelValues(machine, machine).Set(float64(EnterMaintenance))
+		metrics.Machine.WithLabelValues(machine, machine).Set(EnterMaintenance.StatusValue())
 	}
 
 	// Restore site maintenance state.
 	for site := range ms.state.Sites {
-		metrics.Site.WithLabelValues(site).Set(float64(EnterMaintenance))
+		metrics.Site.WithLabelValues(site).Set(EnterMaintenance.StatusValue())
 	}
 
 	log.Printf("INFO: Successfully restored %s from disk.", ms.filename)
@@ -151,20 +156,18 @@ func (ms *MaintenanceState) Write() error {
 
 // UpdateMachine causes a single machine to enter or exit maintenance mode.
 func (ms *MaintenanceState) UpdateMachine(machine string, action Action, issue string) int {
-	updateState(ms.state.Machines, machine, metrics.Machine, issue, action)
-	return 1
+	return updateState(ms.state.Machines, machine, metrics.Machine, issue, action)
 }
 
 // UpdateSite causes a whole site to enter or exit maintenance mode.
 func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string) int {
-	var mods int
-	updateState(ms.state.Sites, site, metrics.Site, issue, action)
-	mods++
+	mods := updateState(ms.state.Sites, site, metrics.Site, issue, action)
 	// Since site is leaving/entering maintenance, remove all associated machine maintenances.
 	for _, num := range []string{"1", "2", "3", "4"} {
 		machine := "mlab" + num + "." + site + ".measurement-lab.org"
 		mods += ms.UpdateMachine(machine, action, issue)
 	}
+	log.Println("Mods is", mods)
 	return mods
 }
 
@@ -175,27 +178,13 @@ func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string)
 func (ms *MaintenanceState) CloseIssue(issue string) int {
 	var totalMods = 0
 	// Remove any sites from maintenance that were set by this issue.
-	for site, issues := range ms.state.Sites {
-		issueIndex := stringInSlice(issue, issues)
-		if issueIndex >= 0 {
-			mods := removeIssue(ms.state.Sites, site, metrics.Site, issue)
-			totalMods = totalMods + mods
-			// Since site is leaving maintenance, remove all associated machine maintenances.
-			for _, num := range []string{"1", "2", "3", "4"} {
-				machine := "mlab" + num + "." + site + ".measurement-lab.org"
-				mods := removeIssue(ms.state.Machines, machine, metrics.Machine, issue)
-				totalMods = totalMods + mods
-			}
-		}
+	for site := range ms.state.Sites {
+		totalMods += ms.UpdateSite(site, LeaveMaintenance, issue)
 	}
 
 	// Remove any machines from maintenance that were set by this issue.
-	for machine, issues := range ms.state.Machines {
-		issueIndex := stringInSlice(issue, issues)
-		if issueIndex >= 0 {
-			mods := removeIssue(ms.state.Machines, machine, metrics.Machine, issue)
-			totalMods = totalMods + mods
-		}
+	for machine := range ms.state.Machines {
+		totalMods += ms.UpdateMachine(machine, LeaveMaintenance, issue)
 	}
 
 	return totalMods
