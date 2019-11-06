@@ -32,6 +32,147 @@ var savedState = `
 	}
 `
 
+func TestActionStatus(t *testing.T) {
+	if EnterMaintenance.StatusValue() != 1 || LeaveMaintenance.StatusValue() != 0 {
+		t.Error(EnterMaintenance.StatusValue(), "and", LeaveMaintenance.StatusValue(), "should be 1 and 0")
+	}
+}
+
+func TestUpdateStateWithBadValue(t *testing.T) {
+	updateState(nil, "", nil, "", -1) // The -1 should not be a legal action.
+}
+
+func TestUpdateMachine(t *testing.T) {
+	dir, err := ioutil.TempDir("", "TestUpdateMachine")
+	rtx.Must(err, "Could not create tempdir")
+	defer os.RemoveAll(dir)
+	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
+
+	s, err := New(dir + "/state.json")
+	rtx.Must(err, "Could not read from tmpfile")
+
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", EnterMaintenance, "13")
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", EnterMaintenance, "13")
+	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 2 {
+		t.Error("Should have two items in", s.state.Machines["mlab3.def01.measurement-lab.org"])
+	}
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "5")
+	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 1 {
+		t.Error("Should have one item in", s.state.Machines["mlab3.def01.measurement-lab.org"])
+	}
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "5")
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "13")
+
+	if _, ok := s.state.Machines["mlab3.def01.measurement-lab.org"]; ok {
+		t.Errorf("%q was supposed to be deleted from %+v", "mlab3.def01.measurement-lab.org", s)
+	}
+}
+
+func TestUpdateSite(t *testing.T) {
+	dir, err := ioutil.TempDir("", "TestUpdateSite")
+	rtx.Must(err, "Could not create tempdir")
+	defer os.RemoveAll(dir)
+	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
+
+	s, err := New(dir + "/state.json")
+	rtx.Must(err, "Could not read from tmpfile")
+
+	if _, ok := s.state.Sites["def01"]; ok {
+		t.Error("Should not have def01 in sites.")
+	}
+	s.UpdateSite("def01", LeaveMaintenance, "20")
+	if _, ok := s.state.Sites["def01"]; ok {
+		t.Error("Should still not have def01 in sites.")
+	}
+	s.UpdateSite("def01", EnterMaintenance, "20")
+	if len(s.state.Sites["def01"]) != 1 {
+		t.Error("Should have one issue for def01")
+	}
+	if len(s.state.Machines["mlab1.def01.measurement-lab.org"]) != 1 {
+		t.Error("Should have one issue for mlab1.def01")
+	}
+	if len(s.state.Machines["mlab2.def01.measurement-lab.org"]) != 1 {
+		t.Error("Should have one issue for mlab2.def01")
+	}
+	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 2 {
+		t.Error("Should have two issues for mlab3.def01")
+	}
+	if len(s.state.Machines["mlab4.def01.measurement-lab.org"]) != 1 {
+		t.Error("Should have one issue for mlab4.def01")
+	}
+	s.UpdateSite("def01", LeaveMaintenance, "20")
+	if _, ok := s.state.Sites["def01"]; ok {
+		t.Error("Should not have def01 in sites.")
+	}
+	if _, ok := s.state.Machines["mlab1.def01.measurement-lab.org"]; ok {
+		t.Error("Should have nothing for mlab1.def01")
+	}
+	if _, ok := s.state.Machines["mlab2.def01.measurement-lab.org"]; ok {
+		t.Error("Should have nothing for mlab2.def01")
+	}
+	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 1 {
+		t.Error("Should have one issue for mlab3.def01")
+	}
+	if _, ok := s.state.Machines["mlab4.def01.measurement-lab.org"]; ok {
+		t.Error("Should have nothing for mlab4.def01")
+	}
+}
+
+func TestCloseIssue(t *testing.T) {
+	dir, err := ioutil.TempDir("", "TestCloseIssue")
+	rtx.Must(err, "Could not create tempdir")
+	defer os.RemoveAll(dir)
+	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
+
+	s, err := New(dir + "/state.json")
+	rtx.Must(err, "Could not read from tmpfile")
+
+	tests := []struct {
+		name              string
+		issue             string
+		expectedMods      int
+		closedMaintenance int
+	}{
+		{
+			name:              "one-issue-per-entity-closes-maintenance",
+			issue:             "8",
+			expectedMods:      5,
+			closedMaintenance: 5,
+		},
+		{
+			name:              "multiple-issues-per-entity-does-not-close-maintenance",
+			issue:             "4",
+			expectedMods:      5,
+			closedMaintenance: 0,
+		},
+		{
+			name:              "close-issue-also-closes-machine-issues",
+			issue:             "5",
+			expectedMods:      1,
+			closedMaintenance: 1,
+		},
+	}
+
+	for _, test := range tests {
+		rtx.Must(s.Restore(), "Could not restore state from tempfile")
+
+		totalEntitiesBefore := len(s.state.Machines) + len(s.state.Sites)
+		mods := s.CloseIssue(test.issue)
+		totalEntitiesAfter := len(s.state.Machines) + len(s.state.Sites)
+		closedMaintenance := totalEntitiesBefore - totalEntitiesAfter
+
+		if mods != test.expectedMods {
+			t.Errorf("closeIssue(): Expected %d state modifications; got %d",
+				test.expectedMods, mods)
+		}
+
+		if closedMaintenance != test.closedMaintenance {
+			t.Errorf("closeIssue(): Expected %d closed maintenances; got %d",
+				test.closedMaintenance, closedMaintenance)
+		}
+	}
+}
+
 func TestRestore(t *testing.T) {
 	dir, err := ioutil.TempDir("", "TestRestore")
 	rtx.Must(err, "Could not create tempdir")
@@ -43,14 +184,14 @@ func TestRestore(t *testing.T) {
 	expectedMachines := 10
 	expectedSites := 2
 
-	if len(s.Machines) != expectedMachines {
+	if len(s.state.Machines) != expectedMachines {
 		t.Errorf("restoreState(): Expected %d restored machines; have %d.",
-			expectedMachines, len(s.Machines))
+			expectedMachines, len(s.state.Machines))
 	}
 
-	if len(s.Sites) != expectedSites {
+	if len(s.state.Sites) != expectedSites {
 		t.Errorf("restoreState(): Expected %d restored sites; have %d.",
-			expectedSites, len(s.Sites))
+			expectedSites, len(s.state.Sites))
 	}
 
 	// Now exercise the error cases
@@ -74,7 +215,7 @@ func TestWrite(t *testing.T) {
 
 	s1, err := New(dir + "/savedstate.json")
 	rtx.Must(err, "Could not restore state for s1")
-	s1.Machines["mlab1.abc01.measurement-lab.org"] = append(s1.Machines["mlab1.abc01.measurement-lab.org"], "2")
+	s1.UpdateMachine("mlab1.abc01.measurement-lab.org", EnterMaintenance, "2")
 	rtx.Must(s1.Write(), "Could not save state")
 
 	s2, err := New(dir + "/savedstate.json")
@@ -82,8 +223,8 @@ func TestWrite(t *testing.T) {
 	if !reflect.DeepEqual(*s2, *s1) {
 		t.Error("The state was not the same after write/restore:", s1, s2)
 	}
-	if strings.Join(s2.Machines["mlab1.abc01.measurement-lab.org"], " ") != "1 2" {
-		t.Error("s2 was not different from the initial (not the saved and modified) input.", s2.Machines["mlab1.abc01.measurement-lab.org"])
+	if strings.Join(s2.state.Machines["mlab1.abc01.measurement-lab.org"], " ") != "1 2" {
+		t.Error("s2 was not different from the initial (not the saved and modified) input.", s2.state.Machines["mlab1.abc01.measurement-lab.org"])
 	}
 
 	// Now exercise the error cases
