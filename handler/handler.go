@@ -111,7 +111,7 @@ func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		switch eventAction {
 		case "closed", "deleted":
 			log.Printf("INFO: Issue #%s was %s.", issueNumber, eventAction)
-			mods = h.state.CloseIssue(issueNumber)
+			mods = h.state.CloseIssue(issueNumber, h.project)
 		case "opened", "edited":
 			mods = h.parseMessage(event.Issue.GetBody(), issueNumber)
 		default:
