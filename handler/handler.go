@@ -48,9 +48,9 @@ func (h *handler) parseMessage(msg string, issueNumber string) int {
 		for _, site := range siteMatches {
 			log.Printf("INFO: Flag found for site: %s", site[1])
 			if strings.TrimSpace(site[2]) == "del" {
-				mods += h.state.UpdateSite(site[1], maintenancestate.LeaveMaintenance, issueNumber)
+				mods += h.state.UpdateSite(site[1], maintenancestate.LeaveMaintenance, issueNumber, h.project)
 			} else {
-				mods += h.state.UpdateSite(site[1], maintenancestate.EnterMaintenance, issueNumber)
+				mods += h.state.UpdateSite(site[1], maintenancestate.EnterMaintenance, issueNumber, h.project)
 			}
 		}
 	}

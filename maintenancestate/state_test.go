@@ -20,6 +20,7 @@ var savedState = `
 			"mlab3.abc02.measurement-lab.org": ["8"],
 			"mlab4.abc02.measurement-lab.org": ["8"],
 			"mlab3.def01.measurement-lab.org": ["5"],
+			"mlab4.def01.measurement-lab.org": ["20"],
 			"mlab1.uvw03.measurement-lab.org": ["4", "11"],
 			"mlab2.uvw03.measurement-lab.org": ["4", "11"],
 			"mlab3.uvw03.measurement-lab.org": ["4", "11"],
@@ -80,11 +81,11 @@ func TestUpdateSite(t *testing.T) {
 	if _, ok := s.state.Sites["def01"]; ok {
 		t.Error("Should not have def01 in sites.")
 	}
-	s.UpdateSite("def01", LeaveMaintenance, "20")
+	s.UpdateSite("def01", LeaveMaintenance, "20", "mlab-oti")
 	if _, ok := s.state.Sites["def01"]; ok {
 		t.Error("Should still not have def01 in sites.")
 	}
-	s.UpdateSite("def01", EnterMaintenance, "20")
+	s.UpdateSite("def01", EnterMaintenance, "20", "mlab-oti")
 	if len(s.state.Sites["def01"]) != 1 {
 		t.Error("Should have one issue for def01")
 	}
@@ -100,7 +101,7 @@ func TestUpdateSite(t *testing.T) {
 	if len(s.state.Machines["mlab4.def01.measurement-lab.org"]) != 1 {
 		t.Error("Should have one issue for mlab4.def01")
 	}
-	s.UpdateSite("def01", LeaveMaintenance, "20")
+	s.UpdateSite("def01", LeaveMaintenance, "20", "mlab-oti")
 	if _, ok := s.state.Sites["def01"]; ok {
 		t.Error("Should not have def01 in sites.")
 	}
@@ -113,8 +114,37 @@ func TestUpdateSite(t *testing.T) {
 	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 1 {
 		t.Error("Should have one issue for mlab3.def01")
 	}
-	if _, ok := s.state.Machines["mlab4.def01.measurement-lab.org"]; ok {
-		t.Error("Should have nothing for mlab4.def01")
+	s.UpdateSite("def01", EnterMaintenance, "25", "mlab-staging")
+	if len(s.state.Sites["def01"]) != 1 {
+		t.Error("Should have one issue for def01")
+	}
+	if _, ok := s.state.Machines["mlab1.def01.measurement-lab.org"]; ok {
+		t.Error("Should have nothing for mlab1.def01")
+	}
+	if _, ok := s.state.Machines["mlab2.def01.measurement-lab.org"]; ok {
+		t.Error("Should have nothing for mlab2.def01")
+	}
+	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 1 {
+		t.Error("Should have one issue for mlab3.def01")
+	}
+	if len(s.state.Machines["mlab4.def01.measurement-lab.org"]) != 2 {
+		t.Error("Should have two issues for mlab4.def01")
+	}
+	s.UpdateSite("def01", EnterMaintenance, "7", "mlab-sandbox")
+	if len(s.state.Sites["def01"]) != 2 {
+		t.Error("Should have two issues for def01")
+	}
+	if len(s.state.Machines["mlab1.def01.measurement-lab.org"]) != 1 {
+		t.Error("Should have one issue for mlab1.def01")
+	}
+	if len(s.state.Machines["mlab2.def01.measurement-lab.org"]) != 1 {
+		t.Error("Should have one issue for mlab2.def01")
+	}
+	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 2 {
+		t.Error("Should have two issues for mlab3.def01")
+	}
+	if len(s.state.Machines["mlab4.def01.measurement-lab.org"]) != 3 {
+		t.Error("Should have three issues for mlab4.def01")
 	}
 }
 
@@ -157,7 +187,7 @@ func TestCloseIssue(t *testing.T) {
 		rtx.Must(s.Restore(), "Could not restore state from tempfile")
 
 		totalEntitiesBefore := len(s.state.Machines) + len(s.state.Sites)
-		mods := s.CloseIssue(test.issue)
+		mods := s.CloseIssue(test.issue, "mlab-oti")
 		totalEntitiesAfter := len(s.state.Machines) + len(s.state.Sites)
 		closedMaintenance := totalEntitiesBefore - totalEntitiesAfter
 
@@ -181,7 +211,7 @@ func TestRestore(t *testing.T) {
 
 	s, err := New(dir + "/state.json")
 	rtx.Must(err, "Could not restore state")
-	expectedMachines := 10
+	expectedMachines := 11
 	expectedSites := 2
 
 	if len(s.state.Machines) != expectedMachines {

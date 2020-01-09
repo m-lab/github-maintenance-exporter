@@ -167,10 +167,20 @@ func (ms *MaintenanceState) UpdateMachine(machine string, action Action, issue s
 }
 
 // UpdateSite causes a whole site to enter or exit maintenance mode.
-func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string) int {
+func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string, project string) int {
+	var nodes []string
 	mods := updateState(ms.state.Sites, site, metrics.Site, issue, action)
-	// Since site is leaving/entering maintenance, remove all associated machine maintenances.
-	for _, num := range []string{"1", "2", "3", "4"} {
+	// If a site is entering or leaving maintenance, automatically add/remove
+	// the project-appropriate nodes to/from maintenance.
+	switch project {
+	case "mlab-sandbox":
+		nodes = []string{"1", "2", "3", "4"}
+	case "mlab-staging":
+		nodes = []string{"4"}
+	case "mlab-oti":
+		nodes = []string{"1", "2", "3"}
+	}
+	for _, num := range nodes {
 		machine := "mlab" + num + "." + site + ".measurement-lab.org"
 		mods += ms.UpdateMachine(machine, action, issue)
 	}
@@ -182,11 +192,11 @@ func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string)
 // issue that added them to maintenance mode is closed. The return value is the
 // number of modifications that were made to the machine and site maintenance
 // state.
-func (ms *MaintenanceState) CloseIssue(issue string) int {
+func (ms *MaintenanceState) CloseIssue(issue string, project string) int {
 	var totalMods = 0
 	// Remove any sites from maintenance that were set by this issue.
 	for site := range ms.state.Sites {
-		totalMods += ms.UpdateSite(site, LeaveMaintenance, issue)
+		totalMods += ms.UpdateSite(site, LeaveMaintenance, issue, project)
 	}
 
 	// Remove any machines from maintenance that were set by this issue.
