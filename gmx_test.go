@@ -77,6 +77,20 @@ func TestGithubSecretFromEmptyFile(t *testing.T) {
 	MustReadGithubSecret(dir + "/secret")
 }
 
+func TestMainBadProject(t *testing.T) {
+	logFatal = func(...interface{}) { panic("testerror") }
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("Should have had a panic but did not")
+		}
+	}()
+
+	*fProject = "mlab-doesnotexist"
+
+	main()
+}
+
 func TestMainViaSmokeTest(t *testing.T) {
 	dir, err := ioutil.TempDir("", "TestMainViaSmokeTest")
 	rtx.Must(err, "Could not create tempdir")
@@ -94,6 +108,7 @@ func TestMainViaSmokeTest(t *testing.T) {
 	*fGitHubSecretPath = dir + "/secret"
 	*fStateFilePath = dir + "/state.json"
 	*fListenAddress = ":0"
+	*fProject = "mlab-sandbox"
 	mainCtx, mainCancel = context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(500 * time.Millisecond)

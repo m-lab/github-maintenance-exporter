@@ -114,8 +114,7 @@ func TestReceiveHook(t *testing.T) {
 							"mlab1.abc01.measurement-lab.org": ["3"],
 							"mlab1.xyz01.measurement-lab.org": ["3"],
 							"mlab2.xyz01.measurement-lab.org": ["3"],
-							"mlab3.xyz01.measurement-lab.org": ["3"],
-							"mlab4.xyz01.measurement-lab.org": ["3"]
+							"mlab3.xyz01.measurement-lab.org": ["3"]
 						},
 						"Sites": {
 							"xyz01": ["3"]
@@ -343,21 +342,21 @@ func TestParseMessage(t *testing.T) {
 			msg:          `Putting /site abc01 and /site xyz02 into maintenance mode.`,
 			issue:        "99",
 			project:      `mlab-oti`,
-			expectedMods: 10,
+			expectedMods: 8,
 		},
 		{
 			name:         "add-1-sites-and-1-machine-to-maintenance",
 			msg:          `Putting /site abc01 and /machine mlab1.xyz02 into maintenance mode.`,
 			issue:        "99",
 			project:      `mlab-oti`,
-			expectedMods: 6,
+			expectedMods: 5,
 		},
 		{
 			name:         "remove-1-machine-and-1-site-from-maintenance",
 			msg:          `Removing /machine mlab2.xyz01 del and /site uvw03 del from maintenance.`,
 			issue:        "11",
 			project:      `mlab-oti`,
-			expectedMods: 6,
+			expectedMods: 5,
 		},
 		{
 			name:         "3-malformed-flags",

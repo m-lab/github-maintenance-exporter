@@ -23,10 +23,11 @@ var (
 	fListenAddress    = flag.String("web.listen-address", ":9999", "Address to listen on for telemetry.")
 	fStateFilePath    = flag.String("storage.state-file", "/tmp/gmx-state", "Filesystem path for the state file.")
 	fGitHubSecretPath = flag.String("storage.github-secret", "", "Filesystem path of file containing the shared Github webhook secret.")
-	fProject          = flag.String("project", "mlab-oti", "GCP project where this instance is running.")
+	fProject          = flag.String("project", "", "GCP project where this instance is running.")
 
 	// Variables to aid in the testing of main()
 	mainCtx, mainCancel = context.WithCancel(context.Background())
+	validProjects       = []string{"mlab-sandbox", "mlab-staging", "mlab-oti"}
 	logFatal            = log.Fatal
 )
 
@@ -64,6 +65,18 @@ func MustReadGithubSecret(filename string) []byte {
 func main() {
 	defer mainCancel()
 	flag.Parse()
+
+	// Exit if an invalid/unknown project is passed.
+	var isValidProject = false
+	for _, project := range validProjects {
+		if project == *fProject {
+			isValidProject = true
+			break
+		}
+	}
+	if !isValidProject {
+		logFatal("Unknown project: ", *fProject)
+	}
 
 	// Read state and secrets off the disk.
 	state, err := maintenancestate.New(*fStateFilePath)
