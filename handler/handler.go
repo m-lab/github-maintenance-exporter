@@ -17,9 +17,9 @@ import (
 
 var (
 	machineRegExps = map[string]*regexp.Regexp{
-		"mlab-sandbox": regexp.MustCompile(`\/machine\s+(mlab[1-4]\.[a-z]{3}[0-9]t)(\s+del)?`),
-		"mlab-staging": regexp.MustCompile(`\/machine\s+(mlab[4]\.[a-z]{3}[0-9c]{2})(\s+del)?`),
-		"mlab-oti":     regexp.MustCompile(`\/machine\s+(mlab[1-3]\.[a-z]{3}[0-9c]{2})(\s+del)?`),
+		"mlab-sandbox": regexp.MustCompile(`\/machine\s+(mlab[1-4][.-][a-z]{3}[0-9]t)(\s+del)?`),
+		"mlab-staging": regexp.MustCompile(`\/machine\s+(mlab[4][.-][a-z]{3}[0-9c]{2})(\s+del)?`),
+		"mlab-oti":     regexp.MustCompile(`\/machine\s+(mlab[1-3][.-][a-z]{3}[0-9c]{2})(\s+del)?`),
 	}
 
 	siteRegExps = map[string]*regexp.Regexp{
@@ -59,12 +59,12 @@ func (h *handler) parseMessage(msg string, issueNumber string) int {
 	if len(machineMatches) > 0 {
 		for _, machine := range machineMatches {
 			log.Printf("INFO: Flag found for machine: %s", machine[1])
-			label := machine[1] + ".measurement-lab.org"
+			label := strings.Replace(machine[1], ".", "-", 1)
 			if strings.TrimSpace(machine[2]) == "del" {
-				h.state.UpdateMachine(label, maintenancestate.LeaveMaintenance, issueNumber)
+				h.state.UpdateMachine(label, maintenancestate.LeaveMaintenance, issueNumber, h.project)
 				mods++
 			} else {
-				h.state.UpdateMachine(label, maintenancestate.EnterMaintenance, issueNumber)
+				h.state.UpdateMachine(label, maintenancestate.EnterMaintenance, issueNumber, h.project)
 				mods++
 			}
 		}

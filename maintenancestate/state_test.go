@@ -40,7 +40,7 @@ func TestActionStatus(t *testing.T) {
 }
 
 func TestUpdateStateWithBadValue(t *testing.T) {
-	updateState(nil, "", nil, "", -1) // The -1 should not be a legal action.
+	updateState(nil, "", nil, "", -1, "no-project") // The -1 should not be a legal action.
 }
 
 func TestUpdateMachine(t *testing.T) {
@@ -52,17 +52,17 @@ func TestUpdateMachine(t *testing.T) {
 	s, err := New(dir + "/state.json")
 	rtx.Must(err, "Could not read from tmpfile")
 
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", EnterMaintenance, "13")
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", EnterMaintenance, "13")
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", EnterMaintenance, "13", "mlab-oti")
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", EnterMaintenance, "13", "mlab-oti")
 	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 2 {
 		t.Error("Should have two items in", s.state.Machines["mlab3.def01.measurement-lab.org"])
 	}
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "5")
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "5", "mlab-oti")
 	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 1 {
 		t.Error("Should have one item in", s.state.Machines["mlab3.def01.measurement-lab.org"])
 	}
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "5")
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "13")
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "5", "mlab-oti")
+	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "13", "mlab-oti")
 
 	if _, ok := s.state.Machines["mlab3.def01.measurement-lab.org"]; ok {
 		t.Errorf("%q was supposed to be deleted from %+v", "mlab3.def01.measurement-lab.org", s)
@@ -245,7 +245,7 @@ func TestWrite(t *testing.T) {
 
 	s1, err := New(dir + "/savedstate.json")
 	rtx.Must(err, "Could not restore state for s1")
-	s1.UpdateMachine("mlab1.abc01.measurement-lab.org", EnterMaintenance, "2")
+	s1.UpdateMachine("mlab1.abc01.measurement-lab.org", EnterMaintenance, "2", "mlab-oti")
 	rtx.Must(s1.Write(), "Could not save state")
 
 	s2, err := New(dir + "/savedstate.json")
