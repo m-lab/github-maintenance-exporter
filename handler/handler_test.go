@@ -19,16 +19,16 @@ import (
 var savedState = `
 	{
 		"Machines": {
-			"mlab1.abc01.measurement-lab.org": ["1"],
-			"mlab1.abc02.measurement-lab.org": ["8"],
-			"mlab2.abc02.measurement-lab.org": ["8"],
-			"mlab3.abc02.measurement-lab.org": ["8"],
-			"mlab4.abc02.measurement-lab.org": ["8"],
-			"mlab3.def01.measurement-lab.org": ["5"],
-			"mlab1.uvw03.measurement-lab.org": ["4", "11"],
-			"mlab2.uvw03.measurement-lab.org": ["4", "11"],
-			"mlab3.uvw03.measurement-lab.org": ["4", "11"],
-			"mlab4.uvw03.measurement-lab.org": ["4", "11"]
+			"mlab1-abc01": ["1"],
+			"mlab1-abc02": ["8"],
+			"mlab2-abc02": ["8"],
+			"mlab3-abc02": ["8"],
+			"mlab4-abc02": ["8"],
+			"mlab3-def01": ["5"],
+			"mlab1-uvw03": ["4", "11"],
+			"mlab2-uvw03": ["4", "11"],
+			"mlab3-uvw03": ["4", "11"],
+			"mlab4-uvw03": ["4", "11"]
 		},
 		"Sites": {
 			"abc02": ["8"],
@@ -111,10 +111,10 @@ func TestReceiveHook(t *testing.T) {
 			expectedState: `
 					{
 						"Machines": {
-							"mlab1.abc01.measurement-lab.org": ["3"],
-							"mlab1.xyz01.measurement-lab.org": ["3"],
-							"mlab2.xyz01.measurement-lab.org": ["3"],
-							"mlab3.xyz01.measurement-lab.org": ["3"]
+							"mlab1-abc01": ["3"],
+							"mlab1-xyz01": ["3"],
+							"mlab2-xyz01": ["3"],
+							"mlab3-xyz01": ["3"]
 						},
 						"Sites": {
 							"xyz01": ["3"]
@@ -139,11 +139,11 @@ func TestReceiveHook(t *testing.T) {
 			initialState: `
 				{
 					"Machines": {
-						"mlab1.abc01.measurement-lab.org": ["3"],
-						"mlab1.xyz01.measurement-lab.org": ["3"],
-						"mlab2.xyz01.measurement-lab.org": ["3", "5"],
-						"mlab3.xyz01.measurement-lab.org": ["3"],
-						"mlab4.xyz01.measurement-lab.org": ["3"]
+						"mlab1-abc01": ["3"],
+						"mlab1-xyz01": ["3"],
+						"mlab2-xyz01": ["3", "5"],
+						"mlab3-xyz01": ["3"],
+						"mlab4-xyz01": ["3"]
 					},
 					"Sites": {
 						"xyz01": ["3"]
@@ -153,7 +153,7 @@ func TestReceiveHook(t *testing.T) {
 			expectedState: `
 				{
 					"Machines": {
-						"mlab2.xyz01.measurement-lab.org": ["5"]
+						"mlab2-xyz01": ["5"]
 					},
 					"Sites": {
 					}
@@ -218,15 +218,15 @@ func TestReceiveHook(t *testing.T) {
 			initialState: `
 				{
 					"Machines": {
-						"mlab1.abc01.measurement-lab.org": ["1"],
-						"mlab2.xyz01.measurement-lab.org": ["3", "5"]
+						"mlab1-abc01": ["1"],
+						"mlab2-xyz01": ["3", "5"]
 					}
 				}
 				`,
 			expectedState: `
 				{
 					"Machines": {
-						"mlab2.xyz01.measurement-lab.org": ["3", "5"]
+						"mlab2-xyz01": ["3", "5"]
 					}
 				}
 			`,
@@ -244,14 +244,14 @@ func TestReceiveHook(t *testing.T) {
 							"state": "open"
 						},
 						"comment": {
-							"body": "Put into maintenance /machine mlab1.abc01"
+							"body": "Put into maintenance /machine mlab1-abc01"
 						}
 					}
 				`,
 			expectedState: `
 				{
 					"Machines": {
-						"mlab1.abc01.measurement-lab.org": ["1"]
+						"mlab1-abc01": ["1"]
 					}
 				}
 				`,

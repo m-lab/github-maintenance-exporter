@@ -14,17 +14,17 @@ import (
 var savedState = `
 	{
 		"Machines": {
-			"mlab1.abc01.measurement-lab.org": ["1"],
-			"mlab1.abc02.measurement-lab.org": ["8"],
-			"mlab2.abc02.measurement-lab.org": ["8"],
-			"mlab3.abc02.measurement-lab.org": ["8"],
-			"mlab4.abc02.measurement-lab.org": ["8"],
-			"mlab3.def01.measurement-lab.org": ["5"],
-			"mlab4.def01.measurement-lab.org": ["20"],
-			"mlab1.uvw03.measurement-lab.org": ["4", "11"],
-			"mlab2.uvw03.measurement-lab.org": ["4", "11"],
-			"mlab3.uvw03.measurement-lab.org": ["4", "11"],
-			"mlab4.uvw03.measurement-lab.org": ["4", "11"]
+			"mlab1-abc01": ["1"],
+			"mlab1-abc02": ["8"],
+			"mlab2-abc02": ["8"],
+			"mlab3-abc02": ["8"],
+			"mlab4-abc02": ["8"],
+			"mlab3-def01": ["5"],
+			"mlab4-def01": ["20"],
+			"mlab1-uvw03": ["4", "11"],
+			"mlab2-uvw03": ["4", "11"],
+			"mlab3-uvw03": ["4", "11"],
+			"mlab4-uvw03": ["4", "11"]
 		},
 		"Sites": {
 			"abc02": ["8"],
@@ -52,20 +52,20 @@ func TestUpdateMachine(t *testing.T) {
 	s, err := New(dir + "/state.json")
 	rtx.Must(err, "Could not read from tmpfile")
 
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", EnterMaintenance, "13", "mlab-oti")
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", EnterMaintenance, "13", "mlab-oti")
-	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 2 {
-		t.Error("Should have two items in", s.state.Machines["mlab3.def01.measurement-lab.org"])
+	s.UpdateMachine("mlab3-def01", EnterMaintenance, "13", "mlab-oti")
+	s.UpdateMachine("mlab3-def01", EnterMaintenance, "13", "mlab-oti")
+	if len(s.state.Machines["mlab3-def01"]) != 2 {
+		t.Error("Should have two items in", s.state.Machines["mlab3-def01"])
 	}
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "5", "mlab-oti")
-	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 1 {
-		t.Error("Should have one item in", s.state.Machines["mlab3.def01.measurement-lab.org"])
+	s.UpdateMachine("mlab3-def01", LeaveMaintenance, "5", "mlab-oti")
+	if len(s.state.Machines["mlab3-def01"]) != 1 {
+		t.Error("Should have one item in", s.state.Machines["mlab3-def01"])
 	}
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "5", "mlab-oti")
-	s.UpdateMachine("mlab3.def01.measurement-lab.org", LeaveMaintenance, "13", "mlab-oti")
+	s.UpdateMachine("mlab3-def01", LeaveMaintenance, "5", "mlab-oti")
+	s.UpdateMachine("mlab3-def01", LeaveMaintenance, "13", "mlab-oti")
 
-	if _, ok := s.state.Machines["mlab3.def01.measurement-lab.org"]; ok {
-		t.Errorf("%q was supposed to be deleted from %+v", "mlab3.def01.measurement-lab.org", s)
+	if _, ok := s.state.Machines["mlab3-def01"]; ok {
+		t.Errorf("%q was supposed to be deleted from %+v", "mlab3-def01", s)
 	}
 }
 
@@ -89,62 +89,62 @@ func TestUpdateSite(t *testing.T) {
 	if len(s.state.Sites["def01"]) != 1 {
 		t.Error("Should have one issue for def01")
 	}
-	if len(s.state.Machines["mlab1.def01.measurement-lab.org"]) != 1 {
-		t.Error("Should have one issue for mlab1.def01")
+	if len(s.state.Machines["mlab1-def01"]) != 1 {
+		t.Error("Should have one issue for mlab1-def01")
 	}
-	if len(s.state.Machines["mlab2.def01.measurement-lab.org"]) != 1 {
-		t.Error("Should have one issue for mlab2.def01")
+	if len(s.state.Machines["mlab2-def01"]) != 1 {
+		t.Error("Should have one issue for mlab2-def01")
 	}
-	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 2 {
-		t.Error("Should have two issues for mlab3.def01")
+	if len(s.state.Machines["mlab3-def01"]) != 2 {
+		t.Error("Should have two issues for mlab3-def01")
 	}
-	if len(s.state.Machines["mlab4.def01.measurement-lab.org"]) != 1 {
-		t.Error("Should have one issue for mlab4.def01")
+	if len(s.state.Machines["mlab4-def01"]) != 1 {
+		t.Error("Should have one issue for mlab4-def01")
 	}
 	s.UpdateSite("def01", LeaveMaintenance, "20", "mlab-oti")
 	if _, ok := s.state.Sites["def01"]; ok {
 		t.Error("Should not have def01 in sites.")
 	}
-	if _, ok := s.state.Machines["mlab1.def01.measurement-lab.org"]; ok {
-		t.Error("Should have nothing for mlab1.def01")
+	if _, ok := s.state.Machines["mlab1-def01"]; ok {
+		t.Error("Should have nothing for mlab1-def01")
 	}
-	if _, ok := s.state.Machines["mlab2.def01.measurement-lab.org"]; ok {
-		t.Error("Should have nothing for mlab2.def01")
+	if _, ok := s.state.Machines["mlab2-def01"]; ok {
+		t.Error("Should have nothing for mlab2-def01")
 	}
-	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 1 {
-		t.Error("Should have one issue for mlab3.def01")
+	if len(s.state.Machines["mlab3-def01"]) != 1 {
+		t.Error("Should have one issue for mlab3-def01")
 	}
 	s.UpdateSite("def01", EnterMaintenance, "25", "mlab-staging")
 	if len(s.state.Sites["def01"]) != 1 {
 		t.Error("Should have one issue for def01")
 	}
-	if _, ok := s.state.Machines["mlab1.def01.measurement-lab.org"]; ok {
-		t.Error("Should have nothing for mlab1.def01")
+	if _, ok := s.state.Machines["mlab1-def01"]; ok {
+		t.Error("Should have nothing for mlab1-def01")
 	}
-	if _, ok := s.state.Machines["mlab2.def01.measurement-lab.org"]; ok {
-		t.Error("Should have nothing for mlab2.def01")
+	if _, ok := s.state.Machines["mlab2-def01"]; ok {
+		t.Error("Should have nothing for mlab2-def01")
 	}
-	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 1 {
-		t.Error("Should have one issue for mlab3.def01")
+	if len(s.state.Machines["mlab3-def01"]) != 1 {
+		t.Error("Should have one issue for mlab3-def01")
 	}
-	if len(s.state.Machines["mlab4.def01.measurement-lab.org"]) != 2 {
-		t.Error("Should have two issues for mlab4.def01")
+	if len(s.state.Machines["mlab4-def01"]) != 2 {
+		t.Error("Should have two issues for mlab4-def01")
 	}
 	s.UpdateSite("def01", EnterMaintenance, "7", "mlab-sandbox")
 	if len(s.state.Sites["def01"]) != 2 {
 		t.Error("Should have two issues for def01")
 	}
-	if len(s.state.Machines["mlab1.def01.measurement-lab.org"]) != 1 {
-		t.Error("Should have one issue for mlab1.def01")
+	if len(s.state.Machines["mlab1-def01"]) != 1 {
+		t.Error("Should have one issue for mlab1-def01")
 	}
-	if len(s.state.Machines["mlab2.def01.measurement-lab.org"]) != 1 {
-		t.Error("Should have one issue for mlab2.def01")
+	if len(s.state.Machines["mlab2-def01"]) != 1 {
+		t.Error("Should have one issue for mlab2-def01")
 	}
-	if len(s.state.Machines["mlab3.def01.measurement-lab.org"]) != 2 {
-		t.Error("Should have two issues for mlab3.def01")
+	if len(s.state.Machines["mlab3-def01"]) != 2 {
+		t.Error("Should have two issues for mlab3-def01")
 	}
-	if len(s.state.Machines["mlab4.def01.measurement-lab.org"]) != 3 {
-		t.Error("Should have three issues for mlab4.def01")
+	if len(s.state.Machines["mlab4-def01"]) != 3 {
+		t.Error("Should have three issues for mlab4-def01")
 	}
 }
 
@@ -245,7 +245,7 @@ func TestWrite(t *testing.T) {
 
 	s1, err := New(dir + "/savedstate.json")
 	rtx.Must(err, "Could not restore state for s1")
-	s1.UpdateMachine("mlab1.abc01.measurement-lab.org", EnterMaintenance, "2", "mlab-oti")
+	s1.UpdateMachine("mlab1-abc01", EnterMaintenance, "2", "mlab-oti")
 	rtx.Must(s1.Write(), "Could not save state")
 
 	s2, err := New(dir + "/savedstate.json")
@@ -253,8 +253,8 @@ func TestWrite(t *testing.T) {
 	if !reflect.DeepEqual(*s2, *s1) {
 		t.Error("The state was not the same after write/restore:", s1, s2)
 	}
-	if strings.Join(s2.state.Machines["mlab1.abc01.measurement-lab.org"], " ") != "1 2" {
-		t.Error("s2 was not different from the initial (not the saved and modified) input.", s2.state.Machines["mlab1.abc01.measurement-lab.org"])
+	if strings.Join(s2.state.Machines["mlab1-abc01"], " ") != "1 2" {
+		t.Error("s2 was not different from the initial (not the saved and modified) input.", s2.state.Machines["mlab1-abc01"])
 	}
 
 	// Now exercise the error cases
