@@ -69,6 +69,60 @@ func TestUpdateMachine(t *testing.T) {
 	}
 }
 
+func TestCreateNodeLabel(t *testing.T) {
+	tests := []struct {
+		name      string
+		shortNode string
+		version   string
+		project   string
+		expected  string
+	}{
+		{
+			name:      "create-v1-label-from-dotted-name",
+			shortNode: "mlab4.abc02",
+			version:   "v1",
+			project:   "mlab-staging",
+			expected:  "mlab4.abc02.measurement-lab.org",
+		},
+		{
+			name:      "create-v1-label-from-flat-name",
+			shortNode: "mlab1-abc02",
+			version:   "v1",
+			project:   "mlab-oti",
+			expected:  "mlab1.abc02.measurement-lab.org",
+		},
+		{
+			name:      "create-v2-label-from-dotted-name",
+			shortNode: "mlab1.abc02",
+			version:   "v2",
+			project:   "mlab-oti",
+			expected:  "mlab1-abc02.mlab-oti.measurement-lab.org",
+		},
+		{
+			name:      "create-v2-label-from-flat-name",
+			shortNode: "mlab1-abc0t",
+			version:   "v2",
+			project:   "mlab-sandbox",
+			expected:  "mlab1-abc0t.mlab-sandbox.measurement-lab.org",
+		},
+		{
+			name:      "create-label-with-no-version",
+			shortNode: "mlab1.abc02",
+			version:   "",
+			project:   "mlab-oti",
+			expected:  "mlab1-abc02.mlab-oti.measurement-lab.org",
+		},
+	}
+
+	for _, test := range tests {
+		actual := createNodeLabel(test.shortNode, test.project, test.version)
+
+		if actual != test.expected {
+			t.Errorf("createNodeLabel(): Expected label %s; got %s", test.expected, actual)
+		}
+	}
+}
+
 func TestUpdateSite(t *testing.T) {
 	dir, err := ioutil.TempDir("", "TestUpdateSite")
 	rtx.Must(err, "Could not create tempdir")

@@ -53,6 +53,22 @@ func stringInSlice(s string, list []string) int {
 	return -1
 }
 
+// createNodeLabel generate an approprate v1 or v2 node name label for a Prometheus metric.
+// TODO(kinkade): remove this once we are fully migrated to v2 names.
+func createNodeLabel(shortNode string, project string, version string) string {
+	var label string
+
+	// Construct and add labels for v1 and v2 names.
+	// TODO(kinkade): once we have migrated 100% to v2 names, this duplication can be removed.
+	if version == "v1" {
+		label = strings.Replace(shortNode, "-", ".", 1) + ".measurement-lab.org"
+	} else {
+		label = strings.Replace(shortNode, ".", "-", 1) + "." + project + ".measurement-lab.org"
+	}
+
+	return label
+}
+
 // Removes a single issue from a site/machine. If the issue was the last one
 // associated with the site/machine, it will also remove the site/machine
 // from maintenance.
@@ -73,8 +89,8 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 			if strings.HasPrefix(mapKey, "mlab") {
 				// Construct and add labels for v1 and v2 names.
 				// TODO(kinkade): once we have migrated 100% to v2 names, this duplication can be removed.
-				machineLabelV1 := strings.Replace(mapKey, "-", ".", 1) + ".measurement-lab.org"
-				machineLabelV2 := mapKey + "." + project + ".measurement-lab.org"
+				machineLabelV1 := createNodeLabel(mapKey, project, "v1")
+				machineLabelV2 := createNodeLabel(mapKey, project, "v2")
 				metricState.WithLabelValues(machineLabelV1, machineLabelV1).Set(0)
 				metricState.WithLabelValues(machineLabelV2, machineLabelV2).Set(0)
 			} else {
@@ -109,8 +125,8 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 		if strings.HasPrefix(mapKey, "mlab") {
 			// Construct and add labels for v1 and v2 names.
 			// TODO(kinkade): once we have migrated 100% to v2 names, this duplication can be removed.
-			machineLabelV1 := strings.Replace(mapKey, "-", ".", 1) + ".measurement-lab.org"
-			machineLabelV2 := mapKey + "." + project + ".measurement-lab.org"
+			machineLabelV1 := createNodeLabel(mapKey, project, "v1")
+			machineLabelV2 := createNodeLabel(mapKey, project, "v2")
 			metricState.WithLabelValues(machineLabelV1, machineLabelV1).Set(action.StatusValue())
 			metricState.WithLabelValues(machineLabelV2, machineLabelV2).Set(action.StatusValue())
 		} else {
