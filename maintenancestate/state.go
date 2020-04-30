@@ -57,7 +57,7 @@ func stringInSlice(s string, list []string) int {
 // associated with the site/machine, it will also remove the site/machine
 // from maintenance.
 func removeIssue(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
-	issueNumber string) int {
+	issueNumber string, project string) int {
 
 	var mods = 0
 	mapElement := stateMap[mapKey]
@@ -71,7 +71,12 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 			// If this is a machine state, then we need to pass mapKey twice, once for the
 			// "machine" label and once for the "node" label.
 			if strings.HasPrefix(mapKey, "mlab") {
-				metricState.WithLabelValues(mapKey, mapKey).Set(0)
+				// Construct and add labels for v1 and v2 names.
+				// TODO(kinkade): once we have migrated 100% to v2 names, this duplication can be removed.
+				machineLabelV1 := strings.Replace(mapKey, "-", ".", 1) + ".measurement-lab.org"
+				machineLabelV2 := mapKey + "." + project + ".measurement-lab.org"
+				metricState.WithLabelValues(machineLabelV1, machineLabelV1).Set(0)
+				metricState.WithLabelValues(machineLabelV2, machineLabelV2).Set(0)
 			} else {
 				metricState.WithLabelValues(mapKey).Set(0)
 			}
@@ -90,7 +95,7 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 	issueNumber string, action Action, project string) int {
 	switch action {
 	case LeaveMaintenance:
-		return removeIssue(stateMap, mapKey, metricState, issueNumber)
+		return removeIssue(stateMap, mapKey, metricState, issueNumber, project)
 	case EnterMaintenance:
 		// Don't enter maintenance more than once for a given issue.
 		issueIndex := stringInSlice(issueNumber, stateMap[mapKey])
