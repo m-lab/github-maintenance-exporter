@@ -25,7 +25,7 @@ var (
 	Machine = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "gmx_machine_maintenance",
-			Help: "Whether a machine is in maitenance mode or not.",
+			Help: "Whether a machine is in maintenance mode or not.",
 		},
 		[]string{
 			"machine",
