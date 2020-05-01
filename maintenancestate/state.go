@@ -57,7 +57,7 @@ func stringInSlice(s string, list []string) int {
 // associated with the site/machine, it will also remove the site/machine
 // from maintenance.
 func removeIssue(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
-	issueNumber string) int {
+	issueNumber string, project string) int {
 
 	var mods = 0
 	mapElement := stateMap[mapKey]
@@ -68,13 +68,7 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 		mapElement = mapElement[:len(mapElement)-1]
 		if len(mapElement) == 0 {
 			delete(stateMap, mapKey)
-			// If this is a machine state, then we need to pass mapKey twice, once for the
-			// "machine" label and once for the "node" label.
-			if strings.HasPrefix(mapKey, "mlab") {
-				metricState.WithLabelValues(mapKey, mapKey).Set(0)
-			} else {
-				metricState.WithLabelValues(mapKey).Set(0)
-			}
+			updateMetrics(mapKey, project, LeaveMaintenance, metricState)
 		} else {
 			stateMap[mapKey] = mapElement
 		}
@@ -84,13 +78,29 @@ func removeIssue(stateMap map[string][]string, mapKey string, metricState *prome
 	return mods
 }
 
+// updateMetrics updates the Prometheus metrics for machine or site.
+func updateMetrics(mapKey string, project string, action Action, metricState *prometheus.GaugeVec) {
+	// If this is a machine state, then we need to pass mapKey twice, once for the
+	// "machine" label and once for the "node" label.
+	if strings.HasPrefix(mapKey, "mlab") {
+		// Construct and add labels for v1 and v2 names.
+		// TODO(kinkade): once we have migrated 100% to v2 names, this duplication can be removed.
+		machineLabelV1 := strings.Replace(mapKey, "-", ".", 1) + ".measurement-lab.org"
+		machineLabelV2 := strings.Replace(mapKey, ".", "-", 1) + "." + project + ".measurement-lab.org"
+		metricState.WithLabelValues(machineLabelV1, machineLabelV1).Set(action.StatusValue())
+		metricState.WithLabelValues(machineLabelV2, machineLabelV2).Set(action.StatusValue())
+	} else {
+		metricState.WithLabelValues(mapKey).Set(action.StatusValue())
+	}
+}
+
 // updateState modifies the maintenance state of a machine or site in the
 // in-memory map as well as updating the Prometheus metric.
 func updateState(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
-	issueNumber string, action Action) int {
+	issueNumber string, action Action, project string) int {
 	switch action {
 	case LeaveMaintenance:
-		return removeIssue(stateMap, mapKey, metricState, issueNumber)
+		return removeIssue(stateMap, mapKey, metricState, issueNumber, project)
 	case EnterMaintenance:
 		// Don't enter maintenance more than once for a given issue.
 		issueIndex := stringInSlice(issueNumber, stateMap[mapKey])
@@ -99,13 +109,7 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 			return 0
 		}
 		stateMap[mapKey] = append(stateMap[mapKey], issueNumber)
-		// If this is a machine state, then we need to pass mapKey twice, once for the
-		// "machine" label and once for the "node" label.
-		if strings.HasPrefix(mapKey, "mlab") {
-			metricState.WithLabelValues(mapKey, mapKey).Set(action.StatusValue())
-		} else {
-			metricState.WithLabelValues(mapKey).Set(action.StatusValue())
-		}
+		updateMetrics(mapKey, project, action, metricState)
 		log.Printf("INFO: %s was added to maintenance for issue #%s", mapKey, issueNumber)
 		return 1
 	default:
@@ -162,14 +166,14 @@ func (ms *MaintenanceState) Write() error {
 }
 
 // UpdateMachine causes a single machine to enter or exit maintenance mode.
-func (ms *MaintenanceState) UpdateMachine(machine string, action Action, issue string) int {
-	return updateState(ms.state.Machines, machine, metrics.Machine, issue, action)
+func (ms *MaintenanceState) UpdateMachine(machine string, action Action, issue string, project string) int {
+	return updateState(ms.state.Machines, machine, metrics.Machine, issue, action, project)
 }
 
 // UpdateSite causes a whole site to enter or exit maintenance mode.
 func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string, project string) int {
 	var nodes []string
-	mods := updateState(ms.state.Sites, site, metrics.Site, issue, action)
+	mods := updateState(ms.state.Sites, site, metrics.Site, issue, action, project)
 	// If a site is entering or leaving maintenance, automatically add/remove
 	// the project-appropriate nodes to/from maintenance.
 	switch project {
@@ -181,8 +185,8 @@ func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string,
 		nodes = []string{"1", "2", "3"}
 	}
 	for _, num := range nodes {
-		machine := "mlab" + num + "." + site + ".measurement-lab.org"
-		mods += ms.UpdateMachine(machine, action, issue)
+		machine := "mlab" + num + "-" + site
+		mods += ms.UpdateMachine(machine, action, issue, project)
 	}
 	log.Println("Mods is", mods)
 	return mods
@@ -201,7 +205,7 @@ func (ms *MaintenanceState) CloseIssue(issue string, project string) int {
 
 	// Remove any machines from maintenance that were set by this issue.
 	for machine := range ms.state.Machines {
-		totalMods += ms.UpdateMachine(machine, LeaveMaintenance, issue)
+		totalMods += ms.UpdateMachine(machine, LeaveMaintenance, issue, project)
 	}
 
 	return totalMods
