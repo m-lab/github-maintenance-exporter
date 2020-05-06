@@ -79,7 +79,7 @@ func main() {
 	}
 
 	// Read state and secrets off the disk.
-	state, err := maintenancestate.New(*fStateFilePath)
+	state, err := maintenancestate.New(*fStateFilePath, *fProject)
 	if err != nil {
 		// TODO: Should this be a fatal error, or is this okay?
 		log.Printf("WARNING: Failed to open state file %s: %s", *fStateFilePath, err)

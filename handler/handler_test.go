@@ -283,7 +283,7 @@ func TestReceiveHook(t *testing.T) {
 				test.stateFile = dir + "/" + test.name
 			}
 			ioutil.WriteFile(test.stateFile, []byte(test.initialState), 0644)
-			state, _ := maintenancestate.New(test.stateFile)
+			state, _ := maintenancestate.New(test.stateFile, "mlab-oti")
 			h := New(state, githubSecret, "mlab-oti")
 			sig := generateSignature(test.secretKey, []byte(test.payload))
 			req, err := http.NewRequest("POST", "/webhook", strings.NewReader(string(test.payload)))
@@ -303,7 +303,7 @@ func TestReceiveHook(t *testing.T) {
 			}
 			if test.expectedStatus == http.StatusOK {
 				rtx.Must(ioutil.WriteFile(dir+"/expectedstate.json", []byte(test.expectedState), 0644), "Could not write golden state")
-				savedState, _ := maintenancestate.New(dir + "/expectedstate.json")
+				savedState, _ := maintenancestate.New(dir+"/expectedstate.json", "mlab-oti")
 				savedState.Write()
 				expectedStateBytes, _ := ioutil.ReadFile(dir + "/expectedstate.json")
 				test.expectedState = string(expectedStateBytes)
@@ -405,7 +405,7 @@ func TestParseMessage(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			rtx.Must(ioutil.WriteFile(dir+"/"+test.name, []byte(savedState), 0644), "Could not write state to tempfile")
-			s, err := maintenancestate.New(dir + "/" + test.name)
+			s, err := maintenancestate.New(dir+"/"+test.name, "mlab-oti")
 			rtx.Must(err, "Could not restore state")
 			h := handler{
 				state:   s,
