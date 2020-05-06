@@ -49,7 +49,7 @@ func TestUpdateMachine(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s, err := New(dir + "/state.json")
+	s, err := New(dir+"/state.json", "mlab-oti")
 	rtx.Must(err, "Could not read from tmpfile")
 
 	s.UpdateMachine("mlab3-def01", EnterMaintenance, "13", "mlab-oti")
@@ -75,7 +75,7 @@ func TestUpdateSite(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s, err := New(dir + "/state.json")
+	s, err := New(dir+"/state.json", "mlab-oti")
 	rtx.Must(err, "Could not read from tmpfile")
 
 	if _, ok := s.state.Sites["def01"]; ok {
@@ -154,7 +154,7 @@ func TestCloseIssue(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s, err := New(dir + "/state.json")
+	s, err := New(dir+"/state.json", "mlab-oti")
 	rtx.Must(err, "Could not read from tmpfile")
 
 	tests := []struct {
@@ -184,7 +184,7 @@ func TestCloseIssue(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		rtx.Must(s.Restore(), "Could not restore state from tempfile")
+		rtx.Must(s.Restore("mlab-oti"), "Could not restore state from tempfile")
 
 		totalEntitiesBefore := len(s.state.Machines) + len(s.state.Sites)
 		mods := s.CloseIssue(test.issue, "mlab-oti")
@@ -209,7 +209,7 @@ func TestRestore(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s, err := New(dir + "/state.json")
+	s, err := New(dir+"/state.json", "mlab-oti")
 	rtx.Must(err, "Could not restore state")
 	expectedMachines := 11
 	expectedSites := 2
@@ -225,13 +225,13 @@ func TestRestore(t *testing.T) {
 	}
 
 	// Now exercise the error cases
-	s2, err := New(dir + "/doesnotexist.json")
+	s2, err := New(dir+"/doesnotexist.json", "mlab-oti")
 	if s2 == nil || err == nil {
 		t.Error("Should have received a non-nil state and a non-nil error, but got:", s2, err)
 	}
 
 	rtx.Must(ioutil.WriteFile(dir+"/badcontents.json", []byte("This is not json"), 0644), "Could not write bad data for test")
-	s3, err := New(dir + "/badcontents.json")
+	s3, err := New(dir+"/badcontents.json", "mlab-oti")
 	if s3 == nil || err == nil {
 		t.Error("Should have received a non-nil state and a non-nil error, but got:", s3, err)
 	}
@@ -243,12 +243,12 @@ func TestWrite(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/savedstate.json", []byte(savedState), 0644), "Could not write to file")
 
-	s1, err := New(dir + "/savedstate.json")
+	s1, err := New(dir+"/savedstate.json", "mlab-oti")
 	rtx.Must(err, "Could not restore state for s1")
 	s1.UpdateMachine("mlab1-abc01", EnterMaintenance, "2", "mlab-oti")
 	rtx.Must(s1.Write(), "Could not save state")
 
-	s2, err := New(dir + "/savedstate.json")
+	s2, err := New(dir+"/savedstate.json", "mlab-oti")
 	rtx.Must(err, "Could not restore state for s2")
 	if !reflect.DeepEqual(*s2, *s1) {
 		t.Error("The state was not the same after write/restore:", s1, s2)

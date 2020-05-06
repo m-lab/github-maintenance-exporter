@@ -119,7 +119,7 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 }
 
 // Restore the maintenance state from disk.
-func (ms *MaintenanceState) Restore() error {
+func (ms *MaintenanceState) Restore(project string) error {
 	data, err := ioutil.ReadFile(ms.filename)
 	if err != nil {
 		log.Printf("ERROR: Failed to read state data from %s: %s", ms.filename, err)
@@ -136,12 +136,12 @@ func (ms *MaintenanceState) Restore() error {
 
 	// Restore machine maintenance state.
 	for machine := range ms.state.Machines {
-		metrics.Machine.WithLabelValues(machine, machine).Set(EnterMaintenance.StatusValue())
+		updateMetrics(machine, project, EnterMaintenance, metrics.Machine)
 	}
 
 	// Restore site maintenance state.
 	for site := range ms.state.Sites {
-		metrics.Site.WithLabelValues(site).Set(EnterMaintenance.StatusValue())
+		updateMetrics(site, project, EnterMaintenance, metrics.Site)
 	}
 
 	log.Printf("INFO: Successfully restored %s from disk.", ms.filename)
@@ -213,7 +213,7 @@ func (ms *MaintenanceState) CloseIssue(issue string, project string) int {
 
 // New creates a MaintenanceState based on the passed-in filename. If it can't
 // be restored from disk, it also generates an error.
-func New(filename string) (*MaintenanceState, error) {
+func New(filename string, project string) (*MaintenanceState, error) {
 	s := &MaintenanceState{
 		state: state{
 			Machines: make(map[string][]string),
@@ -221,7 +221,7 @@ func New(filename string) (*MaintenanceState, error) {
 		},
 		filename: filename,
 	}
-	err := s.Restore()
+	err := s.Restore(project)
 	if err != nil {
 		log.Printf("WARNING: Failed to restore state file %s: %s", filename, err)
 		metrics.Error.WithLabelValues("restore", "maintenancestate.New").Add(1)
