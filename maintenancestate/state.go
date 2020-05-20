@@ -83,12 +83,9 @@ func updateMetrics(mapKey string, project string, action Action, metricState *pr
 	// If this is a machine state, then we need to pass mapKey twice, once for the
 	// "machine" label and once for the "node" label.
 	if strings.HasPrefix(mapKey, "mlab") {
-		// Construct and add labels for v1 and v2 names.
-		// TODO(kinkade): once we have migrated 100% to v2 names, this duplication can be removed.
-		machineLabelV1 := strings.Replace(mapKey, "-", ".", 1) + ".measurement-lab.org"
-		machineLabelV2 := strings.Replace(mapKey, ".", "-", 1) + "." + project + ".measurement-lab.org"
-		metricState.WithLabelValues(machineLabelV1, machineLabelV1).Set(action.StatusValue())
-		metricState.WithLabelValues(machineLabelV2, machineLabelV2).Set(action.StatusValue())
+		// Construct and add labels for the machine.
+		machineLabel := strings.Replace(mapKey, ".", "-", 1) + "." + project + ".measurement-lab.org"
+		metricState.WithLabelValues(machineLabel, machineLabel).Set(action.StatusValue())
 	} else {
 		metricState.WithLabelValues(mapKey).Set(action.StatusValue())
 	}
