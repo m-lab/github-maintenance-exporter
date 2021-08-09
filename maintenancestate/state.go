@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/m-lab/github-maintenance-exporter/metrics"
+	"github.com/m-lab/go/host"
 	"github.com/m-lab/go/rtx"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -85,7 +86,11 @@ func updateMetrics(mapKey string, project string, action Action, metricState *pr
 	if strings.HasPrefix(mapKey, "mlab") {
 		// Construct and add labels for the machine.
 		machineLabel := strings.Replace(mapKey, ".", "-", 1) + "." + project + ".measurement-lab.org"
-		metricState.WithLabelValues(machineLabel, machineLabel).Set(action.StatusValue())
+		// Pick the site name from the full machine name, and use it as the
+		// value of the "site" label for the metric.
+		name, err := host.Parse(machineLabel)
+		rtx.Must(err, "Failed to parse hostname: %s", machineLabel)
+		metricState.WithLabelValues(machineLabel, machineLabel, name.Site).Set(action.StatusValue())
 	} else {
 		metricState.WithLabelValues(mapKey).Set(action.StatusValue())
 	}
