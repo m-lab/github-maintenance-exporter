@@ -30,6 +30,7 @@ var (
 		[]string{
 			"machine",
 			"node",
+			"site",
 		},
 	)
 	// Site is a prometheus metric for exposing site maintenance status.

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/m-lab/github-maintenance-exporter/metrics"
@@ -85,7 +86,11 @@ func updateMetrics(mapKey string, project string, action Action, metricState *pr
 	if strings.HasPrefix(mapKey, "mlab") {
 		// Construct and add labels for the machine.
 		machineLabel := strings.Replace(mapKey, ".", "-", 1) + "." + project + ".measurement-lab.org"
-		metricState.WithLabelValues(machineLabel, machineLabel).Set(action.StatusValue())
+		// Pick the site name from the full machine name, and use it as the
+		// value of the "site" label for the metric.
+		re := regexp.MustCompile("([a-z]{3}[0-9t]{2})")
+		siteLabel := re.FindString(machineLabel)
+		metricState.WithLabelValues(machineLabel, machineLabel, siteLabel).Set(action.StatusValue())
 	} else {
 		metricState.WithLabelValues(mapKey).Set(action.StatusValue())
 	}
