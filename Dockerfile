@@ -1,10 +1,9 @@
-FROM golang:1.16 as build
+FROM golang:1.17 as build
 WORKDIR /go/src/github.com/m-lab/github-maintenance-exporter
 ADD . ./
-RUN CGO_ENABLED=0 go get -v github.com/m-lab/github-maintenance-exporter
+RUN CGO_ENABLED=0 go install -v .
 
 FROM alpine
 WORKDIR /
 COPY --from=build /go/bin/github-maintenance-exporter ./
 ENTRYPOINT ["/github-maintenance-exporter"]
-
