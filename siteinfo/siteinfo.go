@@ -33,8 +33,7 @@ func (s *SiteinfoClient) SiteMachines(site string) ([]string, error) {
 }
 
 // Reload reloads the siteinfo struct with fresh data from siteinfo. It is meant
-// to be run periodically in some sort of loop. The "url" parameter is the URL
-// where the siteinfo JSON document can be downloaded.
+// to be run periodically in some sort of loop.
 func (s *SiteinfoClient) Reload(ctx context.Context) error {
 	siteMachines, err := s.Client.SiteMachines()
 	if err != nil {
