@@ -17,6 +17,7 @@ type Siteinfo interface {
 
 // SiteinfoClient implements the Siteinfo interface.
 type SiteinfoClient struct {
+	Client  *siteinfo.Client
 	Project string
 	Sites   map[string][]string
 }
@@ -35,8 +36,7 @@ func (s *SiteinfoClient) SiteMachines(site string) ([]string, error) {
 // to be run periodically in some sort of loop. The "url" parameter is the URL
 // where the siteinfo JSON document can be downloaded.
 func (s *SiteinfoClient) Reload(ctx context.Context) error {
-	client := siteinfo.New(s.Project, "v2", &http.Client{})
-	siteMachines, err := client.SiteMachines()
+	siteMachines, err := s.Client.SiteMachines()
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,9 @@ func (s *SiteinfoClient) Reload(ctx context.Context) error {
 }
 
 func New(project string) *SiteinfoClient {
+	client := siteinfo.New(project, "v2", &http.Client{})
 	return &SiteinfoClient{
+		Client:  client,
 		Project: project,
 	}
 }
