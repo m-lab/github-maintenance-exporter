@@ -5,14 +5,13 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"net/url"
 
 	"github.com/m-lab/go/siteinfo"
 )
 
 // Siteinfo defines a new siteinfo interface for interacting with the siteinfo API.
 type Siteinfo interface {
-	Reload(ctx context.Context, url *url.URL) error
+	Reload(ctx context.Context) error
 	SiteMachines(site string) ([]string, error)
 }
 
@@ -35,7 +34,7 @@ func (s *SiteinfoClient) SiteMachines(site string) ([]string, error) {
 // Reload reloads the siteinfo struct with fresh data from siteinfo. It is meant
 // to be run periodically in some sort of loop. The "url" parameter is the URL
 // where the siteinfo JSON document can be downloaded.
-func (s *SiteinfoClient) Reload(ctx context.Context, url *url.URL) error {
+func (s *SiteinfoClient) Reload(ctx context.Context) error {
 	client := siteinfo.New(s.Project, "v2", &http.Client{})
 	siteMachines, err := client.SiteMachines()
 	if err != nil {
