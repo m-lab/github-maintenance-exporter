@@ -94,13 +94,20 @@ func TestReload(t *testing.T) {
 	if len(si.Sites["omg09"]) != 2 {
 		t.Errorf("Site omg09 should have 2 machines, but got: %d", len(si.Sites["omg09"]))
 	}
+}
 
+func TestReloadWithError(t *testing.T) {
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	defer ctxCancel()
+
+	si := New("mlab-sandbox")
 	// Test an error from si.Reload().
 	si.Client = siteinfo.New(si.Project, "v2", &failingProvider{})
-	err = si.Reload(ctx)
+	err := si.Reload(ctx)
 	if err == nil {
 		t.Error("Expected an error from Reload(), but didn't get one", err)
 	}
+
 }
 
 func TestSiteMachines(t *testing.T) {
