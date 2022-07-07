@@ -1,16 +1,13 @@
 package siteinfo
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	"net/http"
 	"reflect"
 	"testing"
 
 	"github.com/m-lab/go/siteinfo"
+	"github.com/m-lab/go/siteinfo/siteinfotest"
 )
 
 var testSiteinfoData0 = `{
@@ -26,29 +23,6 @@ var testSiteinfoData1 = `{
 	"diy03": ["mlab1", "mlab3", "mlab4"]
 }`
 
-// The following "Provider" types were nicked directly from go/siteinfo:
-// https://github.com/m-lab/go/blob/master/siteinfo/client_test.go#L13
-
-// stringProvider implements a siteinfo.HTTPProvider but the response's content
-// is a fixed string.
-type stringProvider struct {
-	response string
-}
-
-func (prov stringProvider) Get(string) (*http.Response, error) {
-	return &http.Response{
-		Body:       ioutil.NopCloser(bytes.NewBufferString(prov.response)),
-		StatusCode: http.StatusOK,
-	}, nil
-}
-
-// failingProvider implements a siteinfo.HTTPProvider, but always return an error.
-type failingProvider struct{}
-
-func (prov failingProvider) Get(string) (*http.Response, error) {
-	return nil, fmt.Errorf("error")
-}
-
 func TestReload(t *testing.T) {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	defer ctxCancel()
@@ -57,8 +31,8 @@ func TestReload(t *testing.T) {
 
 	si := New("mlab-sandbox")
 
-	httpProvider := &stringProvider{
-		response: testSiteinfoData0,
+	httpProvider := &siteinfotest.StringProvider{
+		Response: testSiteinfoData0,
 	}
 	si.Client = siteinfo.New(si.Project, "v2", httpProvider)
 	err := si.Reload(ctx)
@@ -74,8 +48,8 @@ func TestReload(t *testing.T) {
 
 	// Test that Reload() replaces all existing sites in si.Sites with the
 	// values returned by siteinfo.SiteMachines().
-	httpProvider = &stringProvider{
-		response: testSiteinfoData1,
+	httpProvider = &siteinfotest.StringProvider{
+		Response: testSiteinfoData1,
 	}
 	si.Client = siteinfo.New(si.Project, "v2", httpProvider)
 	err = si.Reload(ctx)
@@ -102,7 +76,7 @@ func TestReloadWithError(t *testing.T) {
 
 	si := New("mlab-sandbox")
 	// Test an error from si.Reload().
-	si.Client = siteinfo.New(si.Project, "v2", &failingProvider{})
+	si.Client = siteinfo.New(si.Project, "v2", &siteinfotest.FailingProvider{})
 	err := si.Reload(ctx)
 	if err == nil {
 		t.Error("Expected an error from Reload(), but didn't get one", err)
@@ -150,7 +124,7 @@ func TestSiteMachines(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		machines, err := si.SiteMachines(tt.site)
+		machines, err := si.Machines(tt.site)
 
 		if (err != nil) != tt.wantError {
 			t.Errorf("TestSiteMachines(): error = %v, wantError %v", err, tt.wantError)

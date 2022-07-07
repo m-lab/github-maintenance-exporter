@@ -9,22 +9,16 @@ import (
 	"github.com/m-lab/go/siteinfo"
 )
 
-// Siteinfo defines a new siteinfo interface for interacting with the siteinfo API.
-type Siteinfo interface {
-	Reload(ctx context.Context) error
-	SiteMachines(site string) ([]string, error)
-}
-
-// SiteinfoClient implements the Siteinfo interface.
-type SiteinfoClient struct {
+// Siteinfo implements the maintenancestate.Siteinfo interface.
+type Siteinfo struct {
 	Client  *siteinfo.Client
 	Project string
 	Sites   map[string][]string
 }
 
-// SiteMachines takes a short site name parameter (e.g. abc02), and will return
+// Machines takes a short site name parameter (e.g. abc02), and will return
 // the machines (e.g., mlab1, mlab2) that the site contains.
-func (s *SiteinfoClient) SiteMachines(site string) ([]string, error) {
+func (s *Siteinfo) Machines(site string) ([]string, error) {
 	machines, ok := s.Sites[site]
 	if !ok {
 		return []string{}, errors.New("site not found")
@@ -32,9 +26,9 @@ func (s *SiteinfoClient) SiteMachines(site string) ([]string, error) {
 	return machines, nil
 }
 
-// Reload reloads the siteinfo struct with fresh data from siteinfo. It is meant
-// to be run periodically in some sort of loop.
-func (s *SiteinfoClient) Reload(ctx context.Context) error {
+// Reload reloads the siteinfo struct with fresh data from the siteinfo API. It
+// is meant to be run periodically in some sort of loop.
+func (s *Siteinfo) Reload(ctx context.Context) error {
 	siteMachines, err := s.Client.SiteMachines()
 	if err != nil {
 		return err
@@ -44,9 +38,9 @@ func (s *SiteinfoClient) Reload(ctx context.Context) error {
 	return nil
 }
 
-func New(project string) *SiteinfoClient {
+func New(project string) *Siteinfo {
 	client := siteinfo.New(project, "v2", &http.Client{})
-	return &SiteinfoClient{
+	return &Siteinfo{
 		Client:  client,
 		Project: project,
 	}
