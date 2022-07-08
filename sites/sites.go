@@ -12,10 +12,10 @@ import (
 
 // CachingClient implements the maintenancestate.Sites interface.
 type CachingClient struct {
-	mu       sync.Mutex
-	Siteinfo *siteinfo.Client
 	Project  string
+	Siteinfo *siteinfo.Client
 	Sites    map[string][]string
+	mu       sync.Mutex
 }
 
 // Machines takes a short site name parameter (e.g. abc02), and will return
