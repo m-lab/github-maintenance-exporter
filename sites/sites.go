@@ -5,12 +5,14 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/m-lab/go/siteinfo"
 )
 
 // CachingClient implements the maintenancestate.Sites interface.
 type CachingClient struct {
+	mu       sync.Mutex
 	Siteinfo *siteinfo.Client
 	Project  string
 	Sites    map[string][]string
@@ -19,6 +21,9 @@ type CachingClient struct {
 // Machines takes a short site name parameter (e.g. abc02), and will return
 // the machines (e.g., mlab1, mlab2) that the site contains.
 func (cc *CachingClient) Machines(site string) ([]string, error) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+
 	machines, ok := cc.Sites[site]
 	if !ok {
 		return []string{}, errors.New("site not found")
@@ -29,6 +34,9 @@ func (cc *CachingClient) Machines(site string) ([]string, error) {
 // Reload reloads CachingClient.Sites with fresh data from the siteinfo API. It
 // is meant to be run periodically in some sort of loop.
 func (cc *CachingClient) Reload(ctx context.Context) error {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+
 	siteMachines, err := cc.Siteinfo.SiteMachines()
 	if err != nil {
 		return err
