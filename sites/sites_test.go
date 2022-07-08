@@ -1,4 +1,4 @@
-package siteinfo
+package sites
 
 import (
 	"context"
@@ -29,44 +29,44 @@ func TestReload(t *testing.T) {
 
 	var testSites map[string][]string
 
-	si := New("mlab-sandbox")
+	cachingClient := New("mlab-sandbox")
 
 	httpProvider := &siteinfotest.StringProvider{
 		Response: testSiteinfoData0,
 	}
-	si.Client = siteinfo.New(si.Project, "v2", httpProvider)
-	err := si.Reload(ctx)
+	cachingClient.Siteinfo = siteinfo.New(cachingClient.Project, "v2", httpProvider)
+	err := cachingClient.Reload(ctx)
 	if err != nil {
 		t.Errorf("Unexpected error from Reload(): %v", err)
 	}
 
 	json.Unmarshal([]byte(testSiteinfoData0), &testSites)
 
-	if !reflect.DeepEqual(si.Sites, testSites) {
-		t.Errorf("Actual sites not equal to expected sites\ngot: %v\nwant:%v\n", si.Sites, testSites)
+	if !reflect.DeepEqual(cachingClient.Sites, testSites) {
+		t.Errorf("Actual sites not equal to expected sites\ngot: %v\nwant:%v\n", cachingClient.Sites, testSites)
 	}
 
-	// Test that Reload() replaces all existing sites in si.Sites with the
-	// values returned by siteinfo.SiteMachines().
+	// Test that Reload() replaces all existing sites in cachingClient.Sites
+	// with the values returned by siteinfo.SiteMachines().
 	httpProvider = &siteinfotest.StringProvider{
 		Response: testSiteinfoData1,
 	}
-	si.Client = siteinfo.New(si.Project, "v2", httpProvider)
-	err = si.Reload(ctx)
+	cachingClient.Siteinfo = siteinfo.New(cachingClient.Project, "v2", httpProvider)
+	err = cachingClient.Reload(ctx)
 	if err != nil {
 		t.Errorf("Unexpected error from Reload(): %v", err)
 	}
 
-	if len(si.Sites) != 4 {
-		t.Errorf("Expected 4 sites, but got: %d", len(si.Sites))
+	if len(cachingClient.Sites) != 4 {
+		t.Errorf("Expected 4 sites, but got: %d", len(cachingClient.Sites))
 	}
 
-	if _, ok := si.Sites["abc0t"]; ok {
+	if _, ok := cachingClient.Sites["abc0t"]; ok {
 		t.Error("Site abc0t should not be in sites, yet is.")
 	}
 
-	if len(si.Sites["omg09"]) != 2 {
-		t.Errorf("Site omg09 should have 2 machines, but got: %d", len(si.Sites["omg09"]))
+	if len(cachingClient.Sites["omg09"]) != 2 {
+		t.Errorf("Site omg09 should have 2 machines, but got: %d", len(cachingClient.Sites["omg09"]))
 	}
 }
 
@@ -74,19 +74,19 @@ func TestReloadWithError(t *testing.T) {
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	defer ctxCancel()
 
-	si := New("mlab-sandbox")
-	// Test an error from si.Reload().
-	si.Client = siteinfo.New(si.Project, "v2", &siteinfotest.FailingProvider{})
-	err := si.Reload(ctx)
+	cachingClient := New("mlab-sandbox")
+	// Test an error from cachingClient.Reload().
+	cachingClient.Siteinfo = siteinfo.New(cachingClient.Project, "v2", &siteinfotest.FailingProvider{})
+	err := cachingClient.Reload(ctx)
 	if err == nil {
 		t.Error("Expected an error from Reload(), but didn't get one", err)
 	}
 
 }
 
-func TestSiteMachines(t *testing.T) {
-	si := New("mlab-sandbox")
-	err := json.Unmarshal([]byte(testSiteinfoData0), &si.Sites)
+func TestMachines(t *testing.T) {
+	cachingClient := New("mlab-sandbox")
+	err := json.Unmarshal([]byte(testSiteinfoData0), &cachingClient.Sites)
 	if err != nil {
 		t.Errorf("failed to unmarshall test json: %v", err)
 	}
@@ -124,14 +124,14 @@ func TestSiteMachines(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		machines, err := si.Machines(tt.site)
+		machines, err := cachingClient.Machines(tt.site)
 
 		if (err != nil) != tt.wantError {
-			t.Errorf("TestSiteMachines(): error = %v, wantError %v", err, tt.wantError)
+			t.Errorf("TestMachines(): error = %v, wantError %v", err, tt.wantError)
 		}
 
 		if len(machines) != tt.wantCount {
-			t.Errorf("TestSiteMachines(): wanted %d machines for site %s, but got %d", tt.wantCount, tt.site, len(machines))
+			t.Errorf("TestMachines(): wanted %d machines for site %s, but got %d", tt.wantCount, tt.site, len(machines))
 		}
 	}
 }
