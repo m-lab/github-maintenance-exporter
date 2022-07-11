@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/hex"
@@ -36,6 +37,26 @@ var savedState = `
 		}
 	}
 `
+
+var cachingClient = &FakeCachingClient{}
+
+// FakeCachingClient implements the maintenancestate.Sites interface for testing.
+type FakeCachingClient struct {
+	Sites map[string][]string
+}
+
+func (f *FakeCachingClient) Machines(site string) ([]string, error) {
+	return []string{
+		"mlab1",
+		"mlab2",
+		"mlab3",
+		"mlab4",
+	}, nil
+}
+
+func (f *FakeCachingClient) Reload(ctx context.Context) error {
+	return nil
+}
 
 // Every Github webhook contains a header field named X-Hub-Signature which
 // contains a hash of the POST body using a predefined secret. This function
@@ -104,7 +125,7 @@ func TestReceiveHook(t *testing.T) {
 						"action": "edited",
 						"issue": {
 							"number": 3,
-							"body": "Put /machine mlab1.abc01 and /site xyz01 into maintenance."
+							"body": "Put /machine mlab1-abc01 and /site xyz01 into maintenance."
 						}
 					}
 				`,
@@ -114,7 +135,8 @@ func TestReceiveHook(t *testing.T) {
 							"mlab1-abc01": ["3"],
 							"mlab1-xyz01": ["3"],
 							"mlab2-xyz01": ["3"],
-							"mlab3-xyz01": ["3"]
+							"mlab3-xyz01": ["3"],
+							"mlab4-xyz01": ["3"]
 						},
 						"Sites": {
 							"xyz01": ["3"]
@@ -123,7 +145,7 @@ func TestReceiveHook(t *testing.T) {
 				`,
 		},
 		{
-			name:           "issues-hook-good-request-closeuvw03issue",
+			name:           "issues-hook-good-request-close-issue-3",
 			secretKey:      githubSecret,
 			eventType:      "issues",
 			expectedStatus: http.StatusOK,
@@ -283,7 +305,7 @@ func TestReceiveHook(t *testing.T) {
 				test.stateFile = dir + "/" + test.name
 			}
 			ioutil.WriteFile(test.stateFile, []byte(test.initialState), 0644)
-			state, _ := maintenancestate.New(test.stateFile, "mlab-oti")
+			state, _ := maintenancestate.New(test.stateFile, cachingClient, "mlab-oti")
 			h := New(state, githubSecret, "mlab-oti")
 			sig := generateSignature(test.secretKey, []byte(test.payload))
 			req, err := http.NewRequest("POST", "/webhook", strings.NewReader(string(test.payload)))
@@ -303,7 +325,7 @@ func TestReceiveHook(t *testing.T) {
 			}
 			if test.expectedStatus == http.StatusOK {
 				rtx.Must(ioutil.WriteFile(dir+"/expectedstate.json", []byte(test.expectedState), 0644), "Could not write golden state")
-				savedState, _ := maintenancestate.New(dir+"/expectedstate.json", "mlab-oti")
+				savedState, _ := maintenancestate.New(dir+"/expectedstate.json", cachingClient, "mlab-oti")
 				savedState.Write()
 				expectedStateBytes, _ := ioutil.ReadFile(dir + "/expectedstate.json")
 				test.expectedState = string(expectedStateBytes)
@@ -342,21 +364,21 @@ func TestParseMessage(t *testing.T) {
 			msg:          `Putting /site abc01 and /site xyz02 into maintenance mode.`,
 			issue:        "99",
 			project:      `mlab-oti`,
-			expectedMods: 8,
+			expectedMods: 10,
 		},
 		{
 			name:         "add-1-sites-and-1-machine-to-maintenance",
 			msg:          `Putting /site abc01 and /machine mlab1.xyz02 into maintenance mode.`,
 			issue:        "99",
 			project:      `mlab-oti`,
-			expectedMods: 5,
+			expectedMods: 6,
 		},
 		{
 			name:         "remove-1-machine-and-1-site-from-maintenance",
 			msg:          `Removing /machine mlab2.xyz01 del and /site uvw03 del from maintenance.`,
 			issue:        "11",
 			project:      `mlab-oti`,
-			expectedMods: 5,
+			expectedMods: 6,
 		},
 		{
 			name:         "3-malformed-flags",
@@ -405,7 +427,7 @@ func TestParseMessage(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			rtx.Must(ioutil.WriteFile(dir+"/"+test.name, []byte(savedState), 0644), "Could not write state to tempfile")
-			s, err := maintenancestate.New(dir+"/"+test.name, "mlab-oti")
+			s, err := maintenancestate.New(dir+"/"+test.name, cachingClient, "mlab-oti")
 			rtx.Must(err, "Could not restore state")
 			h := handler{
 				state:   s,

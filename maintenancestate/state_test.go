@@ -1,6 +1,8 @@
 package maintenancestate
 
 import (
+	"context"
+	"errors"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -33,6 +35,40 @@ var savedState = `
 	}
 `
 
+var cachingClient = &FakeCachingClient{}
+
+// FakeCachingClient implements the maintenancestate.Sites interface for testing.
+type FakeCachingClient struct {
+	Sites map[string][]string
+}
+
+func (f *FakeCachingClient) Machines(site string) ([]string, error) {
+	switch site {
+	case "abc01", "abc02", "def01", "uvw03":
+		return []string{
+			"mlab1",
+			"mlab2",
+			"mlab3",
+			"mlab4",
+		}, nil
+	case "vir01":
+		return []string{
+			"mlab1",
+		}, nil
+	case "odd02":
+		return []string{
+			"mlab2",
+			"mlab3",
+		}, nil
+	default:
+		return []string{}, errors.New("site not found")
+	}
+}
+
+func (f *FakeCachingClient) Reload(ctx context.Context) error {
+	return nil
+}
+
 func TestActionStatus(t *testing.T) {
 	if EnterMaintenance.StatusValue() != 1 || LeaveMaintenance.StatusValue() != 0 {
 		t.Error(EnterMaintenance.StatusValue(), "and", LeaveMaintenance.StatusValue(), "should be 1 and 0")
@@ -49,7 +85,7 @@ func TestUpdateMachine(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s, err := New(dir+"/state.json", "mlab-oti")
+	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not read from tmpfile")
 
 	s.UpdateMachine("mlab3-def01", EnterMaintenance, "13", "mlab-oti")
@@ -75,7 +111,7 @@ func TestUpdateSite(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s, err := New(dir+"/state.json", "mlab-oti")
+	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not read from tmpfile")
 
 	if _, ok := s.state.Sites["def01"]; ok {
@@ -118,33 +154,64 @@ func TestUpdateSite(t *testing.T) {
 	if len(s.state.Sites["def01"]) != 1 {
 		t.Error("Should have one issue for def01")
 	}
-	if _, ok := s.state.Machines["mlab1-def01"]; ok {
-		t.Error("Should have nothing for mlab1-def01")
+	if len(s.state.Machines["mlab3-def01"]) != 2 {
+		t.Error("Should have two issues for mlab3-def01")
 	}
-	if _, ok := s.state.Machines["mlab2-def01"]; ok {
-		t.Error("Should have nothing for mlab2-def01")
-	}
-	if len(s.state.Machines["mlab3-def01"]) != 1 {
-		t.Error("Should have one issue for mlab3-def01")
-	}
-	if len(s.state.Machines["mlab4-def01"]) != 2 {
-		t.Error("Should have two issues for mlab4-def01")
+	if len(s.state.Machines["mlab4-def01"]) != 1 {
+		t.Error("Should have one issue for mlab4-def01")
 	}
 	s.UpdateSite("def01", EnterMaintenance, "7", "mlab-sandbox")
 	if len(s.state.Sites["def01"]) != 2 {
 		t.Error("Should have two issues for def01")
 	}
-	if len(s.state.Machines["mlab1-def01"]) != 1 {
-		t.Error("Should have one issue for mlab1-def01")
+	if len(s.state.Machines["mlab1-def01"]) != 2 {
+		t.Error("Should have two issues for mlab1-def01")
 	}
-	if len(s.state.Machines["mlab2-def01"]) != 1 {
-		t.Error("Should have one issue for mlab2-def01")
+	if len(s.state.Machines["mlab2-def01"]) != 2 {
+		t.Error("Should have two issues for mlab2-def01")
 	}
-	if len(s.state.Machines["mlab3-def01"]) != 2 {
-		t.Error("Should have two issues for mlab3-def01")
+	if len(s.state.Machines["mlab3-def01"]) != 3 {
+		t.Error("Should have three issues for mlab3-def01")
 	}
-	if len(s.state.Machines["mlab4-def01"]) != 3 {
-		t.Error("Should have three issues for mlab4-def01")
+	if len(s.state.Machines["mlab4-def01"]) != 2 {
+		t.Error("Should have two issues for mlab4-def01")
+	}
+	// Test putting a single-machine virtual site in and out of maintenance.
+	s.UpdateSite("vir01", EnterMaintenance, "74", "mlab-oti")
+	if _, ok := s.state.Machines["mlab1-vir01"]; !ok {
+		t.Error("Should have a machine entry for mlab1-vir01")
+	}
+	for _, m := range []string{"mlab2-vir01", "mlab3-vir01", "mlab4-vir01"} {
+		if _, ok := s.state.Machines[m]; ok {
+			t.Errorf("Should not have a machine entry for %s", m)
+		}
+	}
+	s.UpdateSite("vir01", LeaveMaintenance, "74", "mlab-oti")
+	if _, ok := s.state.Machines["mlab1-vir01"]; ok {
+		t.Error("Should not have a machine entry for mlab1-vir01")
+	}
+	// Test putting an oddball two-machine site in and out of maintenance.
+	s.UpdateSite("odd02", EnterMaintenance, "48", "mlab-oti")
+	for _, m := range []string{"mlab2-odd02", "mlab3-odd02"} {
+		if _, ok := s.state.Machines[m]; !ok {
+			t.Errorf("Should have a machine entry for %s", m)
+		}
+	}
+	for _, m := range []string{"mlab1-odd02", "mlab4-odd02"} {
+		if _, ok := s.state.Machines[m]; ok {
+			t.Errorf("Should not have a machine entry for %s", m)
+		}
+	}
+	s.UpdateSite("odd02", LeaveMaintenance, "48", "mlab-oti")
+	for _, m := range []string{"mlab2-odd02", "mlab3-odd02"} {
+		if _, ok := s.state.Machines[m]; ok {
+			t.Errorf("Should not have a machine entry for %s", m)
+		}
+	}
+	// Test updating a non-existent site.
+	mods := s.UpdateSite("not88", EnterMaintenance, "48", "mlab-oti")
+	if mods != 0 {
+		t.Errorf("Expected 0 modifications for non-existent site, but got: %d", mods)
 	}
 }
 
@@ -154,7 +221,7 @@ func TestCloseIssue(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s, err := New(dir+"/state.json", "mlab-oti")
+	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not read from tmpfile")
 
 	tests := []struct {
@@ -209,7 +276,7 @@ func TestRestore(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
-	s, err := New(dir+"/state.json", "mlab-oti")
+	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not restore state")
 	expectedMachines := 11
 	expectedSites := 2
@@ -225,13 +292,13 @@ func TestRestore(t *testing.T) {
 	}
 
 	// Now exercise the error cases
-	s2, err := New(dir+"/doesnotexist.json", "mlab-oti")
+	s2, err := New(dir+"/doesnotexist.json", cachingClient, "mlab-oti")
 	if s2 == nil || err == nil {
 		t.Error("Should have received a non-nil state and a non-nil error, but got:", s2, err)
 	}
 
 	rtx.Must(ioutil.WriteFile(dir+"/badcontents.json", []byte("This is not json"), 0644), "Could not write bad data for test")
-	s3, err := New(dir+"/badcontents.json", "mlab-oti")
+	s3, err := New(dir+"/badcontents.json", cachingClient, "mlab-oti")
 	if s3 == nil || err == nil {
 		t.Error("Should have received a non-nil state and a non-nil error, but got:", s3, err)
 	}
@@ -243,12 +310,12 @@ func TestWrite(t *testing.T) {
 	defer os.RemoveAll(dir)
 	rtx.Must(ioutil.WriteFile(dir+"/savedstate.json", []byte(savedState), 0644), "Could not write to file")
 
-	s1, err := New(dir+"/savedstate.json", "mlab-oti")
+	s1, err := New(dir+"/savedstate.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not restore state for s1")
 	s1.UpdateMachine("mlab1-abc01", EnterMaintenance, "2", "mlab-oti")
 	rtx.Must(s1.Write(), "Could not save state")
 
-	s2, err := New(dir+"/savedstate.json", "mlab-oti")
+	s2, err := New(dir+"/savedstate.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not restore state for s2")
 	if !reflect.DeepEqual(*s2, *s1) {
 		t.Error("The state was not the same after write/restore:", s1, s2)

@@ -1,4 +1,4 @@
-FROM golang:1.17 as build
+FROM golang:1.18 as build
 WORKDIR /go/src/github.com/m-lab/github-maintenance-exporter
 ADD . ./
 RUN CGO_ENABLED=0 go install -v .

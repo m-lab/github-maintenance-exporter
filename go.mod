@@ -1,10 +1,10 @@
 module github.com/m-lab/github-maintenance-exporter
 
-go 1.17
+go 1.18
 
 require (
 	github.com/google/go-github v17.0.0+incompatible
-	github.com/m-lab/go v0.1.49
+	github.com/m-lab/go v0.1.51
 	github.com/prometheus/client_golang v1.12.2
 )
 
@@ -19,6 +19,6 @@ require (
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.35.0 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
-	golang.org/x/sys v0.0.0-20220627191245-f75cf1eec38b // indirect
+	golang.org/x/sys v0.0.0-20220708085239-5a0f0661e09d // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
 )

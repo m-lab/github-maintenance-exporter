@@ -159,7 +159,6 @@ func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	resp.WriteHeader(status)
-	return
 }
 
 // New creates an http.Handler for receiving github webhook events to update the maintenance state.

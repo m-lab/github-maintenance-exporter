@@ -4,6 +4,7 @@
 package maintenancestate
 
 import (
+	"context"
 	"encoding/json"
 	"io/ioutil"
 	"log"
@@ -33,6 +34,12 @@ func (a Action) StatusValue() float64 {
 	return float64(int(a) - 1)
 }
 
+// Sites defines a new interface for interacting with the sites package.
+type Sites interface {
+	Reload(ctx context.Context) error
+	Machines(site string) ([]string, error)
+}
+
 // This is the state that is serialized to disk.
 type state struct {
 	Machines, Sites map[string][]string
@@ -42,6 +49,7 @@ type state struct {
 type MaintenanceState struct {
 	state    state
 	filename string
+	sites    Sites
 }
 
 // Looks for a string a slice.
@@ -174,20 +182,17 @@ func (ms *MaintenanceState) UpdateMachine(machine string, action Action, issue s
 
 // UpdateSite causes a whole site to enter or exit maintenance mode.
 func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string, project string) int {
-	var nodes []string
+	// Enforce that the site actually exists.
+	machines, err := ms.sites.Machines(site)
+	if err != nil {
+		log.Printf("ERROR: could not update site %s: %v", site, err)
+		return 0
+	}
 	mods := updateState(ms.state.Sites, site, metrics.Site, issue, action, project)
 	// If a site is entering or leaving maintenance, automatically add/remove
-	// the project-appropriate nodes to/from maintenance.
-	switch project {
-	case "mlab-sandbox":
-		nodes = []string{"1", "2", "3", "4"}
-	case "mlab-staging":
-		nodes = []string{"4"}
-	case "mlab-oti":
-		nodes = []string{"1", "2", "3"}
-	}
-	for _, num := range nodes {
-		machine := "mlab" + num + "-" + site
+	// the site's machines to/from maintenance.
+	for _, m := range machines {
+		machine := m + "-" + site
 		mods += ms.UpdateMachine(machine, action, issue, project)
 	}
 	log.Println("Mods is", mods)
@@ -215,13 +220,14 @@ func (ms *MaintenanceState) CloseIssue(issue string, project string) int {
 
 // New creates a MaintenanceState based on the passed-in filename. If it can't
 // be restored from disk, it also generates an error.
-func New(filename string, project string) (*MaintenanceState, error) {
+func New(filename string, sites Sites, project string) (*MaintenanceState, error) {
 	s := &MaintenanceState{
 		state: state{
 			Machines: make(map[string][]string),
 			Sites:    make(map[string][]string),
 		},
 		filename: filename,
+		sites:    sites,
 	}
 	err := s.Restore(project)
 	if err != nil {

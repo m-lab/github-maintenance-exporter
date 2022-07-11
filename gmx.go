@@ -12,9 +12,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/m-lab/github-maintenance-exporter/handler"
 	"github.com/m-lab/github-maintenance-exporter/maintenancestate"
+	"github.com/m-lab/github-maintenance-exporter/sites"
+	"github.com/m-lab/go/memoryless"
 	"github.com/m-lab/go/rtx"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -24,6 +27,9 @@ var (
 	fStateFilePath    = flag.String("storage.state-file", "/tmp/gmx-state", "Filesystem path for the state file.")
 	fGitHubSecretPath = flag.String("storage.github-secret", "", "Filesystem path of file containing the shared Github webhook secret.")
 	fProject          = flag.String("project", "", "GCP project where this instance is running.")
+	fReloadMin        = flag.Duration("reloadmin", time.Hour, "Minimum time to wait between reloads of backing data")
+	fReloadTime       = flag.Duration("reloadtime", 5*time.Hour, "Expected time to wait between reloads of backing data")
+	fReloadMax        = flag.Duration("reloadmax", 24*time.Hour, "Maximum time to wait between reloads of backing data")
 
 	// Variables to aid in the testing of main()
 	mainCtx, mainCancel = context.WithCancel(context.Background())
@@ -37,7 +43,6 @@ var (
 func rootHandler(resp http.ResponseWriter, req *http.Request) {
 	resp.WriteHeader(http.StatusOK)
 	fmt.Fprintf(resp, "GitHub Maintenance Exporter")
-	return
 }
 
 // MustReadGithubSecret reads the GitHub shared webhook secret from a file (if a
@@ -78,8 +83,14 @@ func main() {
 		logFatal("Unknown project: ", *fProject)
 	}
 
+	// Create a new sites.CachingClient, and load data from the siteinfo API
+	// for the first time. An error on the initial load of the siteinfo data is
+	// fatal.
+	sites := sites.New(*fProject)
+	rtx.Must(sites.Reload(mainCtx), "could not load siteinfo data")
+
 	// Read state and secrets off the disk.
-	state, err := maintenancestate.New(*fStateFilePath, *fProject)
+	state, err := maintenancestate.New(*fStateFilePath, sites, *fProject)
 	if err != nil {
 		// TODO: Should this be a fatal error, or is this okay?
 		log.Printf("WARNING: Failed to open state file %s: %s", *fStateFilePath, err)
@@ -97,6 +108,23 @@ func main() {
 		Addr:    *fListenAddress,
 		Handler: http.DefaultServeMux,
 	}
+
+	// Reload the siteinfo data periodically.
+	go func() {
+		reloadConfig := memoryless.Config{
+			Min:      *fReloadMin,
+			Max:      *fReloadMax,
+			Expected: *fReloadTime,
+		}
+		tick, err := memoryless.NewTicker(mainCtx, reloadConfig)
+		rtx.Must(err, "could not create ticker for reloading siteinfo")
+		for range tick.C {
+			err = sites.Reload(mainCtx)
+			if err != nil {
+				log.Printf("Failed to reload the siteinfo data: %v", err)
+			}
+		}
+	}()
 
 	// When the context is canceled, stop serving.
 	go func() {
