@@ -2,6 +2,7 @@ package maintenancestate
 
 import (
 	"context"
+	"errors"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -43,6 +44,13 @@ type FakeCachingClient struct {
 
 func (f *FakeCachingClient) Machines(site string) ([]string, error) {
 	switch site {
+	case "abc01", "abc02", "def01", "uvw03":
+		return []string{
+			"mlab1",
+			"mlab2",
+			"mlab3",
+			"mlab4",
+		}, nil
 	case "vir01":
 		return []string{
 			"mlab1",
@@ -53,12 +61,7 @@ func (f *FakeCachingClient) Machines(site string) ([]string, error) {
 			"mlab3",
 		}, nil
 	default:
-		return []string{
-			"mlab1",
-			"mlab2",
-			"mlab3",
-			"mlab4",
-		}, nil
+		return []string{}, errors.New("site not found")
 	}
 }
 
@@ -204,6 +207,11 @@ func TestUpdateSite(t *testing.T) {
 		if _, ok := s.state.Machines[m]; ok {
 			t.Errorf("Should not have a machine entry for %s", m)
 		}
+	}
+	// Test updating a non-existent site.
+	mods := s.UpdateSite("not88", EnterMaintenance, "48", "mlab-oti")
+	if mods != 0 {
+		t.Errorf("Expected 0 modifications for non-existent site, but got: %d", mods)
 	}
 }
 

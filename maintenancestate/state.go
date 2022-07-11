@@ -182,13 +182,15 @@ func (ms *MaintenanceState) UpdateMachine(machine string, action Action, issue s
 
 // UpdateSite causes a whole site to enter or exit maintenance mode.
 func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string, project string) int {
-	mods := updateState(ms.state.Sites, site, metrics.Site, issue, action, project)
-	// If a site is entering or leaving maintenance, automatically add/remove
-	// the project-appropriate nodes to/from maintenance.
+	// Enforce that the site actually exists.
 	machines, err := ms.sites.Machines(site)
 	if err != nil {
-		log.Printf("ERROR: could not put site into maintenance: %v", err)
+		log.Printf("ERROR: could not update site %s: %v", site, err)
+		return 0
 	}
+	mods := updateState(ms.state.Sites, site, metrics.Site, issue, action, project)
+	// If a site is entering or leaving maintenance, automatically add/remove
+	// the site's machines to/from maintenance.
 	for _, m := range machines {
 		machine := m + "-" + site
 		mods += ms.UpdateMachine(machine, action, issue, project)
