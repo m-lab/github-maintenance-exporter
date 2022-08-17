@@ -25,7 +25,7 @@ deploy:
   script: ./travis/kubectl.sh mlab-staging prometheus-federation ./deploy_gmx.sh
   on:
     repo: m-lab/github-maintenance-exporter
-    branch: master
+    branch: main
     condition: "$TRAVIS_EVENT_TYPE == push"
 # Production
 - provider: script
