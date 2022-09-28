@@ -1,0 +1,25 @@
+timeout: 1800s
+
+options:
+  env:
+  - COMMIT_SHA=$COMMIT_SHA
+  - GIT_ORIGIN_URL=https://github.com/m-lab/github-maintenance-exporter.git
+  - WORKSPACE_LINK=/go/src/github.com/m-lab/github-maintenance-exporter
+
+steps:
+
+# Run unit tests for environment.
+- name: gcr.io/$PROJECT_ID/golang-cbif:1.18
+  args:
+  - go version
+  - go get -v -t ./...
+  - go vet ./...
+  - go test ./... -race
+  - go test -v ./...
+
+# Be sure building the Docker image works.
+- name: gcr.io/cloud-builders/docker
+  args: [
+    'build', '--tag=gcr.io/$PROJECT_ID/github-maintenance-exporter', '.'
+  ]
+
