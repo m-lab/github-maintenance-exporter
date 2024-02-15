@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -54,7 +53,7 @@ func MustReadGithubSecret(filename string) []byte {
 	// Read it from a file or the environment.
 	if filename != "" {
 		var err error
-		secret, err = ioutil.ReadFile(filename)
+		secret, err = os.ReadFile(filename)
 		rtx.Must(err, "ERROR: Could not read file %s", filename)
 	} else {
 		secret = []byte(os.Getenv("GITHUB_WEBHOOK_SECRET"))

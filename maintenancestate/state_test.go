@@ -3,7 +3,6 @@ package maintenancestate
 import (
 	"context"
 	"errors"
-	"io/ioutil"
 	"os"
 	"reflect"
 	"strings"
@@ -80,10 +79,10 @@ func TestUpdateStateWithBadValue(t *testing.T) {
 }
 
 func TestUpdateMachine(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestUpdateMachine")
+	dir, err := os.MkdirTemp("", "TestUpdateMachine")
 	rtx.Must(err, "Could not create tempdir")
 	defer os.RemoveAll(dir)
-	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
+	rtx.Must(os.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
 	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not read from tmpfile")
@@ -106,10 +105,10 @@ func TestUpdateMachine(t *testing.T) {
 }
 
 func TestUpdateSite(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestUpdateSite")
+	dir, err := os.MkdirTemp("", "TestUpdateSite")
 	rtx.Must(err, "Could not create tempdir")
 	defer os.RemoveAll(dir)
-	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
+	rtx.Must(os.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
 	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not read from tmpfile")
@@ -216,10 +215,10 @@ func TestUpdateSite(t *testing.T) {
 }
 
 func TestCloseIssue(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestCloseIssue")
+	dir, err := os.MkdirTemp("", "TestCloseIssue")
 	rtx.Must(err, "Could not create tempdir")
 	defer os.RemoveAll(dir)
-	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
+	rtx.Must(os.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
 	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not read from tmpfile")
@@ -271,10 +270,10 @@ func TestCloseIssue(t *testing.T) {
 }
 
 func TestRestore(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestRestore")
+	dir, err := os.MkdirTemp("", "TestRestore")
 	rtx.Must(err, "Could not create tempdir")
 	defer os.RemoveAll(dir)
-	rtx.Must(ioutil.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
+	rtx.Must(os.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
 
 	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not restore state")
@@ -297,7 +296,7 @@ func TestRestore(t *testing.T) {
 		t.Error("Should have received a non-nil state and a non-nil error, but got:", s2, err)
 	}
 
-	rtx.Must(ioutil.WriteFile(dir+"/badcontents.json", []byte("This is not json"), 0644), "Could not write bad data for test")
+	rtx.Must(os.WriteFile(dir+"/badcontents.json", []byte("This is not json"), 0644), "Could not write bad data for test")
 	s3, err := New(dir+"/badcontents.json", cachingClient, "mlab-oti")
 	if s3 == nil || err == nil {
 		t.Error("Should have received a non-nil state and a non-nil error, but got:", s3, err)
@@ -305,10 +304,10 @@ func TestRestore(t *testing.T) {
 }
 
 func TestWrite(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestWrite")
+	dir, err := os.MkdirTemp("", "TestWrite")
 	rtx.Must(err, "Could not create tempdir")
 	defer os.RemoveAll(dir)
-	rtx.Must(ioutil.WriteFile(dir+"/savedstate.json", []byte(savedState), 0644), "Could not write to file")
+	rtx.Must(os.WriteFile(dir+"/savedstate.json", []byte(savedState), 0644), "Could not write to file")
 
 	s1, err := New(dir+"/savedstate.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not restore state for s1")

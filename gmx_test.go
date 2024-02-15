@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,7 +32,7 @@ func TestRootHandler(t *testing.T) {
 			"TestRootHandler", rec.Code, expectedStatus)
 	}
 
-	bytes, _ := ioutil.ReadAll(rec.Body)
+	bytes, _ := io.ReadAll(rec.Body)
 	payload := string(bytes)
 	if string(payload) != expectedPayload {
 		t.Errorf("rootHandler(): test %s: unexpected return text: got %s; want %s",
@@ -41,10 +41,10 @@ func TestRootHandler(t *testing.T) {
 }
 
 func TestGithubSecretFromFile(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestGithubSecretFromFile")
+	dir, err := os.MkdirTemp("", "TestGithubSecretFromFile")
 	rtx.Must(err, "Could not create tempdir")
 	defer os.RemoveAll(dir)
-	rtx.Must(ioutil.WriteFile(dir+"/secret", []byte("test"), 0644), "Could not create test secret")
+	rtx.Must(os.WriteFile(dir+"/secret", []byte("test"), 0644), "Could not create test secret")
 	b := MustReadGithubSecret(dir + "/secret")
 	if !reflect.DeepEqual(b, []byte("test")) {
 		t.Errorf("%v != %v", b, "test")
@@ -61,10 +61,10 @@ func TestGithubSecretFromEnv(t *testing.T) {
 }
 
 func TestGithubSecretFromEmptyFile(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestGithubSecretFromEmptyFile")
+	dir, err := os.MkdirTemp("", "TestGithubSecretFromEmptyFile")
 	rtx.Must(err, "Could not create tempdir")
 	defer os.RemoveAll(dir)
-	rtx.Must(ioutil.WriteFile(dir+"/secret", []byte{}, 0644), "Could not create test secret")
+	rtx.Must(os.WriteFile(dir+"/secret", []byte{}, 0644), "Could not create test secret")
 
 	logFatal = func(...interface{}) { panic("testerror") }
 	defer func() {
@@ -92,10 +92,10 @@ func TestMainBadProject(t *testing.T) {
 }
 
 func TestMainViaSmokeTest(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestMainViaSmokeTest")
+	dir, err := os.MkdirTemp("", "TestMainViaSmokeTest")
 	rtx.Must(err, "Could not create tempdir")
 	defer os.RemoveAll(dir)
-	rtx.Must(ioutil.WriteFile(dir+"/secret", []byte("test"), 0644), "Could not create test secret")
+	rtx.Must(os.WriteFile(dir+"/secret", []byte("test"), 0644), "Could not create test secret")
 
 	logFatal = func(...interface{}) { panic("testerror") }
 	defer func() {

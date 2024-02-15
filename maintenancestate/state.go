@@ -6,8 +6,8 @@ package maintenancestate
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/m-lab/github-maintenance-exporter/metrics"
@@ -130,7 +130,7 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 
 // Restore the maintenance state from disk.
 func (ms *MaintenanceState) Restore(project string) error {
-	data, err := ioutil.ReadFile(ms.filename)
+	data, err := os.ReadFile(ms.filename)
 	if err != nil {
 		log.Printf("ERROR: Failed to read state data from %s: %s", ms.filename, err)
 		metrics.Error.WithLabelValues("readfile", "maintenancestate.Restore").Inc()
@@ -164,7 +164,7 @@ func (ms *MaintenanceState) Write() error {
 	data, err := json.MarshalIndent(ms.state, "", "    ")
 	rtx.Must(err, "Could not marshal MaintenanceState to a buffer.  This should never happen.")
 
-	err = ioutil.WriteFile(ms.filename, data, 0664)
+	err = os.WriteFile(ms.filename, data, 0664)
 	if err != nil {
 		log.Printf("ERROR: Failed to write state to %s: %s", ms.filename, err)
 		metrics.Error.WithLabelValues("writefile", "maintenancestate.Write").Add(1)
