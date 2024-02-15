@@ -27,7 +27,7 @@ const (
 )
 
 // StatusValue converts the int underlying the Action into a float64 suitable
-// for assigning to a gague metric. When a site or machine is in maintenance
+// for assigning to a gauge metric. When a site or machine is in maintenance
 // mode, the value assigned to the gauge is 1, and when it is not, the value is
 // 0.
 func (a Action) StatusValue() float64 {
@@ -216,6 +216,40 @@ func (ms *MaintenanceState) CloseIssue(issue string, project string) int {
 	}
 
 	return totalMods
+}
+
+// prune removes any sites and machines from maintenance that no longer exist in
+// siteinfo. A site will generally only disappear from siteinfo when it is
+// retired.
+func (ms *MaintenanceState) Prune(project string) {
+	// Remove non-existent sites from maintenance
+	for site, issues := range ms.state.Sites {
+		_, err := ms.sites.Machines(site)
+		if err != nil {
+			for _, issue := range issues {
+				mods := ms.UpdateSite(site, LeaveMaintenance, issue, project)
+				if mods != 1 {
+					log.Printf("ERROR: prune(): failed to remove site %s from maintenance for issue %s", site, issue)
+				}
+			}
+			log.Printf("Removed site %s from maintenace because it no longer exists", site)
+		}
+	}
+
+	// Remove machines at non-existent sites from maintenance
+	for machine, issues := range ms.state.Machines {
+		site := strings.Split(machine, "-")[1]
+		_, err := ms.sites.Machines(site)
+		if err != nil {
+			for _, issue := range issues {
+				mods := ms.UpdateMachine(site, LeaveMaintenance, issue, project)
+				if mods != 1 {
+					log.Printf("ERROR: prune(): failed to remove machine %s from maintenance for issue %s", machine, issue)
+				}
+			}
+			log.Printf("Removed machine %s from maintenace because the site no longer exists", machine)
+		}
+	}
 }
 
 // New creates a MaintenanceState based on the passed-in filename. If it can't
