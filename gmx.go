@@ -122,8 +122,8 @@ func main() {
 			if err != nil {
 				log.Printf("Failed to reload the siteinfo data: %v", err)
 			}
+			state.Prune(*fProject)
 		}
-		state.Prune(*fProject)
 	}()
 
 	// When the context is canceled, stop serving.
