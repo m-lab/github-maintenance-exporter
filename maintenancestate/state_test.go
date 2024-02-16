@@ -3,6 +3,7 @@ package maintenancestate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -22,6 +23,11 @@ var savedState = `
 			"mlab4-abc02": ["8"],
 			"mlab3-def01": ["5"],
 			"mlab4-def01": ["20"],
+			"mlab1-ret0t": ["7"],
+			"mlab2-ret0t": ["7"],
+			"mlab3-ret0t": ["7"],
+			"mlab4-ret0t": ["7"],
+			"mlab2-ret2t": ["12", "15"],
 			"mlab1-uvw03": ["4", "11"],
 			"mlab2-uvw03": ["4", "11"],
 			"mlab3-uvw03": ["4", "11"],
@@ -29,6 +35,7 @@ var savedState = `
 		},
 		"Sites": {
 			"abc02": ["8"],
+			"ret0t": ["7"],
 			"uvw03": ["4", "11"]
 		}
 	}
@@ -75,7 +82,15 @@ func TestActionStatus(t *testing.T) {
 }
 
 func TestUpdateStateWithBadValue(t *testing.T) {
-	updateState(nil, "", nil, "", -1, "no-project") // The -1 should not be a legal action.
+	dir, err := os.MkdirTemp("", "TestUpdateStateSWithBadValue")
+	rtx.Must(err, "Could not create tempdir")
+	defer os.RemoveAll(dir)
+	rtx.Must(os.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
+
+	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
+	rtx.Must(err, "Could not read from tmpfile")
+
+	s.updateState(nil, "", nil, "", -1, "no-project") // The -1 should not be a legal action.
 }
 
 func TestUpdateMachine(t *testing.T) {
@@ -269,6 +284,50 @@ func TestCloseIssue(t *testing.T) {
 	}
 }
 
+func TestPrune(t *testing.T) {
+	dir, err := os.MkdirTemp("", "TestPrune")
+	rtx.Must(err, "Could not create tempdir")
+	defer os.RemoveAll(dir)
+	rtx.Must(os.WriteFile(dir+"/state.json", []byte(savedState), 0644), "Could not write state to tempfile")
+
+	s, err := New(dir+"/state.json", cachingClient, "mlab-sandbox")
+	rtx.Must(err, "Could not read from tmpfile")
+
+	// Record the length of Sites and Machines. Our test data has 1 retired site
+	// (with 4 machines), and one retired machine. We'll use these counts to be
+	// sure that Prune() remove more sites and/or machines than we expected.
+	siteCount := len(s.state.Sites)
+	machineCount := len(s.state.Machines)
+
+	s.Prune("mlab-sandbox")
+
+	if _, ok := s.state.Sites["ret0t"]; ok {
+		t.Error("TestPrune(): should NOT have ret0t in sites.")
+	}
+
+	for i := 1; i <= 4; i++ {
+		if _, ok := s.state.Machines[fmt.Sprintf("mlab%d-ret0t", i)]; ok {
+			t.Errorf("TestPrune(): should NOT have mlab%d-ret0t in machines.", i)
+		}
+
+	}
+
+	if _, ok := s.state.Machines["mlab2-ret2t"]; ok {
+		t.Error("TestPrune(): should NOT have mlab2-ret2t in machines.")
+	}
+
+	if (siteCount - 1) != len(s.state.Sites) {
+		t.Errorf("TestPrune(): expected site count of %d, got %d", (siteCount - 1), len(s.state.Sites))
+	}
+
+	if (machineCount - 5) != len(s.state.Machines) {
+		t.Errorf("TestPrune(): expected site count of %d, got %d", (machineCount - 5), len(s.state.Machines))
+	}
+
+	os.Remove(dir + "/state.json")
+	s.Prune("mlab-sandbox")
+}
+
 func TestRestore(t *testing.T) {
 	dir, err := os.MkdirTemp("", "TestRestore")
 	rtx.Must(err, "Could not create tempdir")
@@ -277,8 +336,8 @@ func TestRestore(t *testing.T) {
 
 	s, err := New(dir+"/state.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not restore state")
-	expectedMachines := 11
-	expectedSites := 2
+	expectedMachines := 16
+	expectedSites := 3
 
 	if len(s.state.Machines) != expectedMachines {
 		t.Errorf("restoreState(): Expected %d restored machines; have %d.",
@@ -316,7 +375,7 @@ func TestWrite(t *testing.T) {
 
 	s2, err := New(dir+"/savedstate.json", cachingClient, "mlab-oti")
 	rtx.Must(err, "Could not restore state for s2")
-	if !reflect.DeepEqual(*s2, *s1) {
+	if !reflect.DeepEqual(s2, s1) {
 		t.Error("The state was not the same after write/restore:", s1, s2)
 	}
 	if strings.Join(s2.state.Machines["mlab1-abc01"], " ") != "1 2" {
