@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/m-lab/github-maintenance-exporter/metrics"
 	"github.com/m-lab/go/host"
@@ -47,6 +48,7 @@ type state struct {
 
 // MaintenanceState is a struct for storing both machine and site maintenance states.
 type MaintenanceState struct {
+	mu       sync.Mutex
 	state    state
 	filename string
 	sites    Sites
@@ -106,8 +108,12 @@ func updateMetrics(mapKey string, project string, action Action, metricState *pr
 
 // updateState modifies the maintenance state of a machine or site in the
 // in-memory map as well as updating the Prometheus metric.
-func updateState(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
+func (ms *MaintenanceState) updateState(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
 	issueNumber string, action Action, project string) int {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
 	switch action {
 	case LeaveMaintenance:
 		return removeIssue(stateMap, mapKey, metricState, issueNumber, project)
@@ -161,6 +167,9 @@ func (ms *MaintenanceState) Restore(project string) error {
 // Write serializes the content of a maintenanceState object into JSON and
 // writes it to a file on disk.
 func (ms *MaintenanceState) Write() error {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
 	data, err := json.MarshalIndent(ms.state, "", "    ")
 	rtx.Must(err, "Could not marshal MaintenanceState to a buffer.  This should never happen.")
 
@@ -177,7 +186,7 @@ func (ms *MaintenanceState) Write() error {
 
 // UpdateMachine causes a single machine to enter or exit maintenance mode.
 func (ms *MaintenanceState) UpdateMachine(machine string, action Action, issue string, project string) int {
-	return updateState(ms.state.Machines, machine, metrics.Machine, issue, action, project)
+	return ms.updateState(ms.state.Machines, machine, metrics.Machine, issue, action, project)
 }
 
 // UpdateSite causes a whole site to enter or exit maintenance mode.
@@ -188,7 +197,7 @@ func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string,
 		log.Printf("ERROR: could not update site %s: %v", site, err)
 		return 0
 	}
-	mods := updateState(ms.state.Sites, site, metrics.Site, issue, action, project)
+	mods := ms.updateState(ms.state.Sites, site, metrics.Site, issue, action, project)
 	// If a site is entering or leaving maintenance, automatically add/remove
 	// the site's machines to/from maintenance.
 	for _, m := range machines {
@@ -222,33 +231,49 @@ func (ms *MaintenanceState) CloseIssue(issue string, project string) int {
 // siteinfo. A site will generally only disappear from siteinfo when it is
 // retired.
 func (ms *MaintenanceState) Prune(project string) {
-	// Remove non-existent sites from maintenance
-	for site, issues := range ms.state.Sites {
+	ms.mu.Lock()
+
+	mods := false
+
+	// Remove non-existent sites from maintenance, along with any machines.
+	for site := range ms.state.Sites {
 		_, err := ms.sites.Machines(site)
 		if err != nil {
-			for _, issue := range issues {
-				mods := ms.UpdateSite(site, LeaveMaintenance, issue, project)
-				if mods != 1 {
-					log.Printf("ERROR: prune(): failed to remove site %s from maintenance for issue %s", site, issue)
+			updateMetrics(site, project, LeaveMaintenance, metrics.Site)
+			delete(ms.state.Sites, site)
+			for machine := range ms.state.Machines {
+				if site == strings.Split(machine, "-")[1] {
+					updateMetrics(machine, project, LeaveMaintenance, metrics.Machine)
+					delete(ms.state.Machines, machine)
 				}
 			}
+			mods = true
 			log.Printf("Removed site %s from maintenace because it no longer exists", site)
 		}
 	}
 
 	// Remove machines at non-existent sites from maintenance
-	for machine, issues := range ms.state.Machines {
+	for machine := range ms.state.Machines {
 		site := strings.Split(machine, "-")[1]
 		_, err := ms.sites.Machines(site)
 		if err != nil {
-			for _, issue := range issues {
-				mods := ms.UpdateMachine(site, LeaveMaintenance, issue, project)
-				if mods != 1 {
-					log.Printf("ERROR: prune(): failed to remove machine %s from maintenance for issue %s", machine, issue)
+			for machine := range ms.state.Machines {
+				if site == strings.Split(machine, "-")[1] {
+					updateMetrics(machine, project, LeaveMaintenance, metrics.Machine)
+					delete(ms.state.Machines, machine)
 				}
 			}
+			mods = true
 			log.Printf("Removed machine %s from maintenace because the site no longer exists", machine)
 		}
+	}
+
+	// Unlock here, since ms.Write() does its own locking and unlocking.
+	ms.mu.Unlock()
+
+	// Only write state to file if the current state was modified.
+	if mods {
+		ms.Write()
 	}
 }
 
