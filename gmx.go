@@ -95,6 +95,9 @@ func main() {
 		log.Printf("WARNING: Failed to open state file %s: %s", *fStateFilePath, err)
 	}
 
+	// Prune the loaded statefile of state for sites/machine that no longer exist.
+	state.Prune(*fProject)
+
 	githubSecret := MustReadGithubSecret(*fGitHubSecretPath)
 
 	// Add handlers to the default handler.
