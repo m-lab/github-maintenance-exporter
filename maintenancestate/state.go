@@ -227,6 +227,18 @@ func (ms *MaintenanceState) CloseIssue(issue string, project string) int {
 	return totalMods
 }
 
+// removeSiteMachines take a site and project as parameters and iterates through
+// all machines in the current state, removing them if the site matches the
+// passed site parameter.
+func (ms *MaintenanceState) removeSiteMachines(site string, project string) {
+	for machine := range ms.state.Machines {
+		if site == strings.Split(machine, "-")[1] {
+			updateMetrics(machine, project, LeaveMaintenance, metrics.Machine)
+			delete(ms.state.Machines, machine)
+		}
+	}
+}
+
 // prune removes any sites and machines from maintenance that no longer exist in
 // siteinfo. A site will generally only disappear from siteinfo when it is
 // retired.
@@ -241,12 +253,7 @@ func (ms *MaintenanceState) Prune(project string) {
 		if err != nil {
 			updateMetrics(site, project, LeaveMaintenance, metrics.Site)
 			delete(ms.state.Sites, site)
-			for machine := range ms.state.Machines {
-				if site == strings.Split(machine, "-")[1] {
-					updateMetrics(machine, project, LeaveMaintenance, metrics.Machine)
-					delete(ms.state.Machines, machine)
-				}
-			}
+			ms.removeSiteMachines(site, project)
 			mods = true
 			log.Printf("Removed site %s from maintenace because it no longer exists", site)
 		}
@@ -257,12 +264,7 @@ func (ms *MaintenanceState) Prune(project string) {
 		site := strings.Split(machine, "-")[1]
 		_, err := ms.sites.Machines(site)
 		if err != nil {
-			for machine := range ms.state.Machines {
-				if site == strings.Split(machine, "-")[1] {
-					updateMetrics(machine, project, LeaveMaintenance, metrics.Machine)
-					delete(ms.state.Machines, machine)
-				}
-			}
+			ms.removeSiteMachines(site, project)
 			mods = true
 			log.Printf("Removed machine %s from maintenace because the site no longer exists", machine)
 		}
