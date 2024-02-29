@@ -239,13 +239,13 @@ func (ms *MaintenanceState) removeSiteMachines(site string, project string) {
 	}
 }
 
-// prune removes any sites and machines from maintenance that no longer exist in
-// siteinfo. A site will generally only disappear from siteinfo when it is
-// retired.
-func (ms *MaintenanceState) Prune(project string) {
-	ms.mu.Lock()
-
+// removeRetired forcefully removes a site and/or machines from maintenance if
+// the site they represent was retired.
+func (ms *MaintenanceState) removeRetired(project string) bool {
 	mods := false
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
 
 	// Remove non-existent sites from maintenance, along with any machines.
 	for site := range ms.state.Sites {
@@ -270,8 +270,14 @@ func (ms *MaintenanceState) Prune(project string) {
 		}
 	}
 
-	// Unlock here, since ms.Write() does its own locking and unlocking.
-	ms.mu.Unlock()
+	return mods
+}
+
+// prune removes any sites and machines from maintenance that no longer exist in
+// siteinfo. A site will generally only disappear from siteinfo when it is
+// retired.
+func (ms *MaintenanceState) Prune(project string) {
+	mods := ms.removeRetired(project)
 
 	// Only write state to file if the current state was modified.
 	if mods {
