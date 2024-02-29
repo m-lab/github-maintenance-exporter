@@ -6,9 +6,10 @@ package maintenancestate
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"log"
+	"os"
 	"strings"
+	"sync"
 
 	"github.com/m-lab/github-maintenance-exporter/metrics"
 	"github.com/m-lab/go/host"
@@ -27,7 +28,7 @@ const (
 )
 
 // StatusValue converts the int underlying the Action into a float64 suitable
-// for assigning to a gague metric. When a site or machine is in maintenance
+// for assigning to a gauge metric. When a site or machine is in maintenance
 // mode, the value assigned to the gauge is 1, and when it is not, the value is
 // 0.
 func (a Action) StatusValue() float64 {
@@ -47,6 +48,7 @@ type state struct {
 
 // MaintenanceState is a struct for storing both machine and site maintenance states.
 type MaintenanceState struct {
+	mu       sync.Mutex
 	state    state
 	filename string
 	sites    Sites
@@ -106,8 +108,12 @@ func updateMetrics(mapKey string, project string, action Action, metricState *pr
 
 // updateState modifies the maintenance state of a machine or site in the
 // in-memory map as well as updating the Prometheus metric.
-func updateState(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
+func (ms *MaintenanceState) updateState(stateMap map[string][]string, mapKey string, metricState *prometheus.GaugeVec,
 	issueNumber string, action Action, project string) int {
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
 	switch action {
 	case LeaveMaintenance:
 		return removeIssue(stateMap, mapKey, metricState, issueNumber, project)
@@ -130,7 +136,7 @@ func updateState(stateMap map[string][]string, mapKey string, metricState *prome
 
 // Restore the maintenance state from disk.
 func (ms *MaintenanceState) Restore(project string) error {
-	data, err := ioutil.ReadFile(ms.filename)
+	data, err := os.ReadFile(ms.filename)
 	if err != nil {
 		log.Printf("ERROR: Failed to read state data from %s: %s", ms.filename, err)
 		metrics.Error.WithLabelValues("readfile", "maintenancestate.Restore").Inc()
@@ -161,10 +167,13 @@ func (ms *MaintenanceState) Restore(project string) error {
 // Write serializes the content of a maintenanceState object into JSON and
 // writes it to a file on disk.
 func (ms *MaintenanceState) Write() error {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
 	data, err := json.MarshalIndent(ms.state, "", "    ")
 	rtx.Must(err, "Could not marshal MaintenanceState to a buffer.  This should never happen.")
 
-	err = ioutil.WriteFile(ms.filename, data, 0664)
+	err = os.WriteFile(ms.filename, data, 0664)
 	if err != nil {
 		log.Printf("ERROR: Failed to write state to %s: %s", ms.filename, err)
 		metrics.Error.WithLabelValues("writefile", "maintenancestate.Write").Add(1)
@@ -177,7 +186,7 @@ func (ms *MaintenanceState) Write() error {
 
 // UpdateMachine causes a single machine to enter or exit maintenance mode.
 func (ms *MaintenanceState) UpdateMachine(machine string, action Action, issue string, project string) int {
-	return updateState(ms.state.Machines, machine, metrics.Machine, issue, action, project)
+	return ms.updateState(ms.state.Machines, machine, metrics.Machine, issue, action, project)
 }
 
 // UpdateSite causes a whole site to enter or exit maintenance mode.
@@ -188,7 +197,7 @@ func (ms *MaintenanceState) UpdateSite(site string, action Action, issue string,
 		log.Printf("ERROR: could not update site %s: %v", site, err)
 		return 0
 	}
-	mods := updateState(ms.state.Sites, site, metrics.Site, issue, action, project)
+	mods := ms.updateState(ms.state.Sites, site, metrics.Site, issue, action, project)
 	// If a site is entering or leaving maintenance, automatically add/remove
 	// the site's machines to/from maintenance.
 	for _, m := range machines {
@@ -216,6 +225,64 @@ func (ms *MaintenanceState) CloseIssue(issue string, project string) int {
 	}
 
 	return totalMods
+}
+
+// removeSiteMachines take a site and project as parameters and iterates through
+// all machines in the current state, removing them if the site matches the
+// passed site parameter.
+func (ms *MaintenanceState) removeSiteMachines(site string, project string) {
+	for machine := range ms.state.Machines {
+		if site == strings.Split(machine, "-")[1] {
+			updateMetrics(machine, project, LeaveMaintenance, metrics.Machine)
+			delete(ms.state.Machines, machine)
+		}
+	}
+}
+
+// removeRetired forcefully removes a site and/or machines from maintenance if
+// the site they represent was retired.
+func (ms *MaintenanceState) removeRetired(project string) bool {
+	mods := false
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	// Remove non-existent sites from maintenance, along with any machines.
+	for site := range ms.state.Sites {
+		_, err := ms.sites.Machines(site)
+		if err != nil {
+			updateMetrics(site, project, LeaveMaintenance, metrics.Site)
+			delete(ms.state.Sites, site)
+			ms.removeSiteMachines(site, project)
+			mods = true
+			log.Printf("Removed site %s from maintenace because it no longer exists", site)
+		}
+	}
+
+	// Remove machines at non-existent sites from maintenance
+	for machine := range ms.state.Machines {
+		site := strings.Split(machine, "-")[1]
+		_, err := ms.sites.Machines(site)
+		if err != nil {
+			ms.removeSiteMachines(site, project)
+			mods = true
+			log.Printf("Removed machine %s from maintenace because the site no longer exists", machine)
+		}
+	}
+
+	return mods
+}
+
+// prune removes any sites and machines from maintenance that no longer exist in
+// siteinfo. A site will generally only disappear from siteinfo when it is
+// retired.
+func (ms *MaintenanceState) Prune(project string) {
+	mods := ms.removeRetired(project)
+
+	// Only write state to file if the current state was modified.
+	if mods {
+		ms.Write()
+	}
 }
 
 // New creates a MaintenanceState based on the passed-in filename. If it can't

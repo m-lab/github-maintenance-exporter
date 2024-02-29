@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -54,7 +53,7 @@ func MustReadGithubSecret(filename string) []byte {
 	// Read it from a file or the environment.
 	if filename != "" {
 		var err error
-		secret, err = ioutil.ReadFile(filename)
+		secret, err = os.ReadFile(filename)
 		rtx.Must(err, "ERROR: Could not read file %s", filename)
 	} else {
 		secret = []byte(os.Getenv("GITHUB_WEBHOOK_SECRET"))
@@ -96,6 +95,9 @@ func main() {
 		log.Printf("WARNING: Failed to open state file %s: %s", *fStateFilePath, err)
 	}
 
+	// Prune the loaded statefile of state for sites/machine that no longer exist.
+	state.Prune(*fProject)
+
 	githubSecret := MustReadGithubSecret(*fGitHubSecretPath)
 
 	// Add handlers to the default handler.
@@ -123,6 +125,7 @@ func main() {
 			if err != nil {
 				log.Printf("Failed to reload the siteinfo data: %v", err)
 			}
+			state.Prune(*fProject)
 		}
 	}()
 

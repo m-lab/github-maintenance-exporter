@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/google/go-github/github"
 	"github.com/m-lab/github-maintenance-exporter/maintenancestate"
@@ -30,7 +29,6 @@ var (
 )
 
 type handler struct {
-	mux          sync.Mutex
 	state        *maintenancestate.MaintenanceState
 	githubSecret []byte
 	project      string
@@ -77,10 +75,6 @@ func (h *handler) parseMessage(msg string, issueNumber string) int {
 // hook, parses the payload, makes sure that the hook event matches at least one
 // event this exporter handles, then passes off the payload to parseMessage.
 func (h *handler) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	// Multithreaded map access+mutation is complicated, so for now we just guard
-	// everything with a global mutex.
-	h.mux.Lock()
-	defer h.mux.Unlock()
 	var issueNumber string
 	var mods = 0 // Number of modifications made to current state by webhook.
 	var status = http.StatusOK

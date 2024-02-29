@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/hex"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,7 +67,7 @@ func generateSignature(secret, msg []byte) string {
 }
 
 func TestReceiveHook(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestReceiveHook")
+	dir, err := os.MkdirTemp("", "TestReceiveHook")
 	rtx.Must(err, "Could not make tempfile")
 	defer os.RemoveAll(dir)
 	githubSecret := []byte("goodsecret")
@@ -304,7 +303,7 @@ func TestReceiveHook(t *testing.T) {
 			if test.stateFile == "" {
 				test.stateFile = dir + "/" + test.name
 			}
-			ioutil.WriteFile(test.stateFile, []byte(test.initialState), 0644)
+			os.WriteFile(test.stateFile, []byte(test.initialState), 0644)
 			state, _ := maintenancestate.New(test.stateFile, cachingClient, "mlab-oti")
 			h := New(state, githubSecret, "mlab-oti")
 			sig := generateSignature(test.secretKey, []byte(test.payload))
@@ -324,13 +323,13 @@ func TestReceiveHook(t *testing.T) {
 					test.name, rec.Code, test.expectedStatus)
 			}
 			if test.expectedStatus == http.StatusOK {
-				rtx.Must(ioutil.WriteFile(dir+"/expectedstate.json", []byte(test.expectedState), 0644), "Could not write golden state")
+				rtx.Must(os.WriteFile(dir+"/expectedstate.json", []byte(test.expectedState), 0644), "Could not write golden state")
 				savedState, _ := maintenancestate.New(dir+"/expectedstate.json", cachingClient, "mlab-oti")
 				savedState.Write()
-				expectedStateBytes, _ := ioutil.ReadFile(dir + "/expectedstate.json")
+				expectedStateBytes, _ := os.ReadFile(dir + "/expectedstate.json")
 				test.expectedState = string(expectedStateBytes)
 
-				actualStateBytes, _ := ioutil.ReadFile(test.stateFile)
+				actualStateBytes, _ := os.ReadFile(test.stateFile)
 				actualState := string(actualStateBytes)
 				if test.expectedState != actualState {
 					t.Errorf("State was not changed correctly: %s != %s", test.expectedState, actualState)
@@ -341,7 +340,7 @@ func TestReceiveHook(t *testing.T) {
 }
 
 func TestParseMessage(t *testing.T) {
-	dir, err := ioutil.TempDir("", "TestCloseIssue")
+	dir, err := os.MkdirTemp("", "TestCloseIssue")
 	rtx.Must(err, "Could not create tempdir")
 	defer os.RemoveAll(dir)
 
@@ -426,7 +425,7 @@ func TestParseMessage(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rtx.Must(ioutil.WriteFile(dir+"/"+test.name, []byte(savedState), 0644), "Could not write state to tempfile")
+			rtx.Must(os.WriteFile(dir+"/"+test.name, []byte(savedState), 0644), "Could not write state to tempfile")
 			s, err := maintenancestate.New(dir+"/"+test.name, cachingClient, "mlab-oti")
 			rtx.Must(err, "Could not restore state")
 			h := handler{
@@ -436,7 +435,7 @@ func TestParseMessage(t *testing.T) {
 			mods := h.parseMessage(test.msg, test.issue)
 			if mods != test.expectedMods {
 				h.state.Write()
-				newstate, _ := ioutil.ReadFile(dir + "/" + test.name)
+				newstate, _ := os.ReadFile(dir + "/" + test.name)
 				t.Errorf("parseMessage(): %s (issue %s): expected %d state modifications; got %d (%s)",
 					test.name, test.issue, test.expectedMods, mods, string(newstate))
 			}
